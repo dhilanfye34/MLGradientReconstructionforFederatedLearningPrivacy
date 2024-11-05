@@ -23,6 +23,8 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
 
     # Initialize dummy data and labels with random values to start the reconstruction process.
     # These will be adjusted to make their gradients match the origin_grad.
+    # will eventually get the actual data in this file to be initiliazed with it, need a little more time
+
     dummy_data = torch.randn(origin_grad[0].size())  # Random data with same size as input gradient
     dummy_label = torch.randn((1, origin_grad[-1].size(1)))  # Random label with appropriate dimensions
 
@@ -54,7 +56,7 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
             if iteration < switch_iteration:
                 # Before switch: Use DLG's L2 norm-based gradient matching (magnitude-based approach)
                 # Calculate the sum of squared differences (L2 norm) between dummy_grad and origin_grad.
-                grad_diff = sum(((dummy_g - origin_g) ** 2).sum() for dummy_g, origin_g in zip(dummy_grad, origin_grad))
+                grad_diff = deep_leakage_from_gradients(model, origin_grad)
             else:
                 # After switch: Use InverseFed's cosine similarity-based approach (direction-based approach)
                 # Calculate cosine similarity between dummy_grad and origin_grad to focus on gradient direction.
