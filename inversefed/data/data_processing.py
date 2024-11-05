@@ -203,7 +203,7 @@ def _build_imagenet(data_path, augmentations=True, normalize=True):
 
 
 def _get_meanstd(dataset):
-    cc = torch.cat([trainset[i][0].reshape(3, -1) for i in range(len(trainset))], dim=1)
+    cc = torch.cat([dataset[i][0].reshape(3, -1) for i in range(len(dataset))], dim=1)
     data_mean = torch.mean(cc, dim=1).tolist()
     data_std = torch.std(cc, dim=1).tolist()
     return data_mean, data_std
