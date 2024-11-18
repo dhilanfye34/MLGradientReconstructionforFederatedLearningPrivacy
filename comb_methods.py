@@ -34,34 +34,61 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
         dummy_label: The reconstructed label that matches the origin gradients.
     """
 
-    # Initialize dummy data and labels
-    dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True)  # Random initialization
-    dummy_label = torch.randn((1, origin_grad[-1].size(1)), requires_grad=True)  # Random labels
+    # Debug: Check if origin_grad is a list of tensors
+    print("Debug: Checking origin_grad...")
+    if not isinstance(origin_grad, list) or not all(isinstance(g, torch.Tensor) for g in origin_grad):
+        raise ValueError("origin_grad must be a list of tensors.")
+    print("Debug: origin_grad is valid.")
 
-    optimizer = torch.optim.LBFGS([dummy_data, dummy_label])  # LBFGS optimizer
+    # Initialize dummy data
+    dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True)
+
+    # Debug: Ensure origin_grad[-1] is a tensor with valid dimensions
+    if len(origin_grad[-1].size()) < 2:
+        raise ValueError("origin_grad[-1] must have at least two dimensions for labels.")
+
+    # Initialize dummy labels
+    dummy_label = torch.randn((1, origin_grad[-1].size(1)), requires_grad=True)
+
+    # Set up optimizer
+    optimizer = torch.optim.LBFGS([dummy_data, dummy_label])
+
+    # Initialize GradientReconstructor
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
+    # Begin optimization loop
     for i in range(300):
         def closure():
-            optimizer.zero_grad()
+            optimizer.zero_grad()  # Reset gradients to zero before each iteration
 
+            # Forward pass: Calculate model predictions on dummy data
             dummy_pred = model(dummy_data)
+
+            # Cross-entropy loss between dummy predictions and dummy labels
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label.argmax(dim=1))
+
+            # Backpropagation: Compute gradients of dummy_loss with respect to model parameters
             dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True)
 
+            # Switch between methods based on iteration
             if iteration < switch_iteration:
+                # Use DLG's L2 norm-based gradient matching (magnitude-based approach)
                 grad_diff = deep_leakage_from_gradients(model, origin_grad)
             else:
+                # Use InverseFed's cosine similarity-based approach (direction-based approach)
                 grad_diff = reconstructor._gradient_closure(optimizer, dummy_data, origin_grad, dummy_label)()
 
+            # Add Total Variation (TV) regularization if enabled
             if use_tv:
-                grad_diff += TV(dummy_data) * 1e-1
+                grad_diff += TV(dummy_data) * 1e-1  # Adjust weight as needed
 
-            grad_diff.backward()
+            grad_diff.backward()  # Backpropagate gradient difference
             return grad_diff
 
+        # Update dummy data and labels
         optimizer.step(closure)
 
+    # Return final reconstructed data and labels
     return dummy_data, dummy_label
 
 
