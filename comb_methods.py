@@ -7,7 +7,6 @@ from dlg_original import deep_leakage_from_gradients  # Importing original DLG m
 from inversefed.reconstruction_algorithms import GradientReconstructor  # Importing InverseFed method
 from inversefed.metrics import total_variation as TV  # Importing Total Variation (TV) regularization
 
-
 def load_image(file_path):
     """Load and preprocess an image for use in the reconstruction pipeline."""
     transform = transforms.Compose([
@@ -45,6 +44,7 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
     for i in range(300):
+        iteration = i;
         def closure():
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
@@ -65,7 +65,6 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
         optimizer.step(closure)
 
     return dummy_data, dummy_label
-
 
 if __name__ == "__main__":
     # Load the model
