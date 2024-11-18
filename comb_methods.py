@@ -67,7 +67,7 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
 
 if __name__ == "__main__":
     # Load the model
-    from inversefed.models import construct_model
+    from inversefed.nn.models import construct_model
 
     model, _ = construct_model("ResNet18", num_classes=1000)  # ResNet18 expects ImageNet (1000 classes)
     model.eval()
