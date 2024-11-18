@@ -1,67 +1,97 @@
 import torch
-import torchvision.transforms as transforms
-from PIL import Image
+import torchvision
+import matplotlib.pyplot as plt
 from torchvision.utils import save_image
-
-# Import the combined gradient matching function
 from comb_methods import combined_gradient_matching
-from inversefed.nn.models import construct_model  # For creating the ResNet18 model
+from inversefed import construct_dataloaders, utils, consts
+from inversefed.reconstruction_algorithms import GradientReconstructor
+from dlg_original import deep_leakage_from_gradients
 
-# Step 1: Load the input image
-def load_input_image(image_path):
-    """Load and preprocess the input image."""
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # ImageNet normalization
-    ])
-    img = Image.open(image_path).convert('RGB')  # Ensure the image is in RGB mode
-    input_image = transform(img).unsqueeze(0).requires_grad_(True)  # Add batch dimension and enable gradients
-    return input_image
 
-# Step 2: Load the model
-def load_model():
-    """Load the ResNet18 model."""
-    model, _ = construct_model("ResNet18", num_classes=1000)
-    model.eval()  # Set the model to evaluation mode
-    return model
+# Step 1: System Setup
+setup = utils.system_startup()
+defs = utils.training_strategy('conservative')
 
-# Step 3: Compute the original gradients
-def compute_gradients(model, input_image, target_label):
-    """Compute gradients for the given input image and target label."""
-    criterion = torch.nn.CrossEntropyLoss()  # Loss function
-    outputs = model(input_image)  # Forward pass
-    loss = criterion(outputs, torch.tensor([target_label]))  # Calculate loss
-    origin_grad = torch.autograd.grad(loss, model.parameters(), create_graph=True)  # Compute gradients
-    return origin_grad
+# Load the dataset
+loss_fn, trainloader, validloader = construct_dataloaders('ImageNet', defs, data_path='/data/imagenet')
 
-# Step 4: Test the combined gradient matching method
+# Load normalization constants for ImageNet
+dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
+ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
+
+# Step 2: Helper Functions
+def plot(tensor, title, save_path=None):
+    """Helper function to plot and save images."""
+    tensor = tensor.clone().detach()
+    tensor.mul_(ds).add_(dm).clamp_(0, 1)
+    plt.imshow(tensor[0].permute(1, 2, 0).cpu())
+    plt.title(title)
+    if save_path:
+        save_image(tensor, save_path)
+        print(f"Saved image to {save_path}")
+    plt.show()
+
+
+# Step 3: Test Combined Gradient Matching
 def test_combined_method():
-    # Load the input image
-    image_path = "11794_ResNet18_ImageNet_input.png"  # Update with the correct path to your input image
-    input_image = load_input_image(image_path)
+    # Load pretrained ResNet18
+    model = torchvision.models.resnet18(pretrained=True)
+    model.to(**setup)
+    model.eval()
 
-    # Load the model
-    model = load_model()
+    # Select the beagle image from the dataset
+    idx = 8112  # Beagle's index in ImageNet
+    img, label = validloader.dataset[idx]
+    labels = torch.as_tensor((label,), device=setup['device'])
+    ground_truth = img.to(**setup).unsqueeze(0)
 
-    # Define the target label
-    target_label = 243  # Example label (e.g., 243 = "German Shepherd" in ImageNet)
+    # Visualize and save the ground truth image
+    plot(ground_truth, f"Ground Truth (Label: {label})", f"{idx}_input_image.png")
 
-    # Compute the original gradients
-    origin_grad = compute_gradients(model, input_image, target_label)
+    # Compute the gradients
+    model.zero_grad()
+    target_loss, _, _ = loss_fn(model(ground_truth), labels)
+    input_gradient = torch.autograd.grad(target_loss, model.parameters())
+    input_gradient = [grad.detach() for grad in input_gradient]
 
-    # Run the combined gradient matching function
-    dummy_data, dummy_label = combined_gradient_matching(
-        model=model,
-        origin_grad=origin_grad,
-        iteration=0,
-        switch_iteration=100,
-        use_tv=True
-    )
+    # Step 4: Test Different Reconstruction Methods
+    methods = {
+        "DLG": deep_leakage_from_gradients,
+        "GradientReconstructor": GradientReconstructor,
+        "Combined": combined_gradient_matching
+    }
+    results = {}
 
-    # Save the reconstructed image
-    save_image(dummy_data, "reconstructed_image.png")
-    print("Reconstructed image saved as 'reconstructed_image.png'.")
+    for method_name, method in methods.items():
+        print(f"Testing {method_name}...")
+        
+        if method_name == "DLG":
+            reconstructed_image, _ = method(model, input_gradient, labels)
+        
+        elif method_name == "GradientReconstructor":
+            config = dict(signed=True, boxed=True, cost_fn='sim', lr=0.1, optim='adam', max_iterations=24000)
+            reconstructor = method(model, (dm, ds), config, num_images=1)
+            reconstructed_image, stats = reconstructor.reconstruct(input_gradient, labels, img_shape=(3, 224, 224))
+        
+        elif method_name == "Combined":
+            reconstructed_image, _ = method(
+                model=model,
+                origin_grad=input_gradient,
+                iteration=0,
+                switch_iteration=100,
+                use_tv=True
+            )
+        
+        # Save and visualize reconstructed images
+        plot(reconstructed_image, f"Reconstructed ({method_name})", f"{idx}_{method_name}_output.png")
+        results[method_name] = reconstructed_image
+
+    # Step 5: Compare Results
+    print("\nComparison of Reconstructed Images:")
+    for method_name, image in results.items():
+        mse = (image.detach() - ground_truth).pow(2).mean()
+        print(f"{method_name} MSE: {mse:.4f}")
+
 
 # Run the test
 if __name__ == "__main__":
