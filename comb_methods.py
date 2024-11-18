@@ -4,14 +4,17 @@ from torch.autograd import grad
 from dlg_original import deep_leakage_from_gradients  # Importing original DLG method
 from inversefed.reconstruction_algorithms import GradientReconstructor  # Importing InverseFed method
 from inversefed.metrics import total_variation as TV  # Importing Total Variation (TV) regularization
+from inversefed.consts import cifar10_mean, cifar10_std  # Normalization constants
 
-def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=100, use_tv=True):
+def combined_gradient_matching(model, origin_grad, input_data, input_label, iteration, switch_iteration=100, use_tv=True):
     """
     Combined method that switches between DLG (magnitude-based) and GradientReconstructor (direction-based) approaches.
 
     Arguments:
         model: The neural network model we are reconstructing input data for.
         origin_grad: The original gradients we are trying to match.
+        input_data: The input data to initialize the dummy data (normalized images).
+        input_label: The corresponding label for the input data.
         iteration: Current iteration in the optimization loop (used to decide switching point).
         switch_iteration: Iteration number at which to switch from DLG to GradientReconstructor.
         use_tv: Boolean indicating whether to apply Total Variation regularization to smooth the dummy image.
@@ -21,15 +24,16 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
         dummy_label: The reconstructed label that matches the origin gradients.
     """
 
-    # Initialize dummy data and labels with random values to start the reconstruction process.
-    # These will be adjusted to make their gradients match the origin_grad.
-    # will eventually get the actual data in this file to be initiliazed with it, need a little more time
+    # Normalize input data using CIFAR-10 mean and std
+    dm = torch.tensor(cifar10_mean)[:, None, None]
+    ds = torch.tensor(cifar10_std)[:, None, None]
+    normalized_data = (input_data - dm) / ds
 
-    dummy_data = torch.randn(origin_grad[0].size())  # Random data with same size as input gradient
-    dummy_label = torch.randn((1, origin_grad[-1].size(1)))  # Random label with appropriate dimensions
+    # Initialize dummy data and dummy label with input_data and input_label
+    dummy_data = normalized_data.clone().detach().requires_grad_(True)  # Clone to allow independent updates
+    dummy_label = input_label.clone().detach().requires_grad_(True)
 
     # Set up an optimizer to iteratively update dummy_data and dummy_label.
-    # LBFGS (Limited-memory BFGS) is a quasi-Newton optimizer suited for this type of iterative optimization.
     optimizer = torch.optim.LBFGS([dummy_data, dummy_label])
 
     # Initialize an instance of GradientReconstructor from the InverseFed library.
@@ -46,7 +50,6 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
             dummy_pred = model(dummy_data)
 
             # Calculate the cross-entropy loss between dummy predictions and dummy labels.
-            # This loss will guide the adjustment of dummy_data to match the origin_grad.
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label.argmax(dim=1))
 
             # Backpropagation: Compute gradients of dummy_loss with respect to model parameters.
@@ -76,3 +79,4 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
 
     # Return the final reconstructed dummy data and dummy label after all iterations
     return dummy_data, dummy_label
+
