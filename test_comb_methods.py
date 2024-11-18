@@ -24,7 +24,7 @@ setup = utils.system_startup()
 defs = TrainingStrategy(augmentations=None)
 
 # Load the dataset
-loss_fn, trainloader, validloader = construct_dataloaders('ImageNet', defs, data_path='/data/imagenet')
+loss_fn, trainloader, validloader = construct_dataloaders('CIFAR10', defs)
 
 # Load normalization constants for ImageNet
 dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
