@@ -10,7 +10,15 @@ from dlg_original import deep_leakage_from_gradients
 
 # Step 1: System Setup
 setup = utils.system_startup()
-defs = utils.training_strategy('conservative')
+
+# Manually define the strategy since `training_strategy` is missing
+defs = {
+    "optimizer": "adam",
+    "lr": 0.1,
+    "batch_size": 128,
+    "epochs": 90,
+    "scheduler": "cos",
+}
 
 # Load the dataset
 loss_fn, trainloader, validloader = construct_dataloaders('ImageNet', defs, data_path='/data/imagenet')
