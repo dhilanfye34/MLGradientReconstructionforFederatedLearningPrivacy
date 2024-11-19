@@ -48,7 +48,7 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
     optimizer = torch.optim.LBFGS([dummy_data, dummy_label], lr=0.01)  # LBFGS optimizer
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
-    for i in range(2000):
+    for i in range(2000): # past 200-300 iterations, maybe not changing much, # wait parameter to see if you dont need to change to second approach, then experience with lambda, make sure 0 and 1 work and then also then try 0.5 and others
         iteration = i;
         def closure():
             optimizer.zero_grad()
