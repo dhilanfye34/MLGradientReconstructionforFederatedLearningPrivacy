@@ -51,6 +51,8 @@ def test_combined_method():
     model.to(**setup)
     model.eval()
 
+    trainloader, validloader = construct_dataloaders('CIFAR10', defs)  # Reload datasets
+
     # Select an image from the dataset
     idx = 3  # Change this index based on your dataset (e.g., CIFAR-10 or ImageNet)
     img, label = validloader.dataset[idx]
