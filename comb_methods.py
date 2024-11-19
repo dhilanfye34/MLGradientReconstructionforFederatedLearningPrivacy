@@ -38,8 +38,12 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=3
 
     # Initialize dummy data and labels
     dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True)
+
+    # Determine the output size for labels
     output_size = origin_grad[-1].shape[0] if len(origin_grad[-1].shape) > 0 else 1
-    dummy_label = torch.randn((1, output_size), requires_grad=True)
+
+    # Initialize dummy labels as integer class indices
+    dummy_label = torch.randint(0, output_size, (64,), requires_grad=False) 
 
     optimizer = torch.optim.LBFGS([dummy_data, dummy_label])  # LBFGS optimizer
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
