@@ -17,7 +17,7 @@ def load_image(file_path):
     return transform(image).unsqueeze(0)  # Add batch dimension
 
 
-def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=300, use_tv=True):
+def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1000, use_tv=True):
     """
     Combined method that switches between DLG (magnitude-based) and GradientReconstructor (direction-based) approaches.
 
@@ -45,10 +45,10 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=3
     # Initialize dummy labels as integer class indices
     dummy_label = torch.randint(0, output_size, (64,), requires_grad=False) 
 
-    optimizer = torch.optim.LBFGS([dummy_data, dummy_label])  # LBFGS optimizer
+    optimizer = torch.optim.LBFGS([dummy_data, dummy_label], lr=0.01)  # LBFGS optimizer
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
-    for i in range(700):
+    for i in range(2000):
         iteration = i;
         def closure():
             optimizer.zero_grad()

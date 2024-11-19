@@ -77,7 +77,7 @@ def test_combined_method():
         model=model,
         origin_grad=input_gradient,
         iteration=0,
-        switch_iteration=300,
+        switch_iteration=1000,
         use_tv=True
     )
 
