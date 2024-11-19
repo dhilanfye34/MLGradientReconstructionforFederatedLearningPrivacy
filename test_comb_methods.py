@@ -52,7 +52,7 @@ def test_combined_method():
     model.eval()
 
     # Select an image from the dataset
-    idx = 1  # Change this index based on your dataset (e.g., CIFAR-10 or ImageNet)
+    idx = 8112  # Change this index based on your dataset (e.g., CIFAR-10 or ImageNet)
     img, label = validloader.dataset[idx]
     labels = torch.as_tensor((label,), device=setup['device'])
     ground_truth = img.to(**setup).unsqueeze(0)
