@@ -19,40 +19,22 @@ def load_image(file_path):
     return transform(image).unsqueeze(0)  # Add batch dimension
 
 
-def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1000, use_tv=True):
+def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv=True):
     """
-    Combined method that switches between DLG (magnitude-based) and GradientReconstructor (direction-based) approaches.
-
-    Arguments:
-        model: The neural network model we are reconstructing input data for.
-        origin_grad: The original gradients we are trying to match (must be a list of tensors).
-        iteration: Current iteration in the optimization loop (used to decide switching point).
-        switch_iteration: Iteration number at which to switch from DLG to GradientReconstructor.
-        use_tv: Boolean indicating whether to apply Total Variation regularization to smooth the dummy image.
-
-    Returns:
-        dummy_data: The reconstructed input data that matches the origin gradients.
-        dummy_label: The reconstructed label that matches the origin gradients.
+    Combined gradient matching: switches from DLG to cosine-based reconstruction.
     """
-    # Validate origin_grad
-    if not isinstance(origin_grad, list) or not all(isinstance(t, torch.Tensor) for t in origin_grad):
-        raise ValueError("origin_grad must be a list of tensors.")
+    # Initialize dummy data and dummy labels
+    dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True, device=origin_grad[0].device)
+    output_size = 1000  # ImageNet classes
+    dummy_label = torch.randint(0, output_size, (1,), requires_grad=False, device=origin_grad[0].device)
 
-    # Initialize dummy data and labels
-    dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True)
-
-    # Set the output size for labels
-    output_size = 1000  # ImageNet has 1000 classes
-    dummy_label = torch.randint(0, output_size, (1,), requires_grad=False).to(origin_grad[0].device)
-
-    optimizer = torch.optim.LBFGS([dummy_data], lr=0.1)  # LBFGS optimizer
+    # Set up optimizer and reconstructor
+    optimizer = torch.optim.LBFGS([dummy_data], lr=0.1)
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
+    # Start the optimization loop
     print("Starting Combined Gradient Matching...")
-    for i in range(2000):  # Total iterations
-        if i % 100 == 0:
-            print(f"Iteration {i} - Running optimization...")
-
+    for iteration in range(200):  # Start with 200 iterations
         def closure():
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
@@ -60,22 +42,26 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
             dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True)
 
             # Switch between DLG and GradientReconstructor
-            if i < switch_iteration:
+            if iteration < switch_iteration:
                 grad_diff = deep_leakage_from_gradients(model, origin_grad)
-                if i % 100 == 0:
-                    print("Using DLG method...")
+                if iteration % 50 == 0: print(f"Iteration {iteration}: Using DLG method...")
             else:
                 grad_diff = reconstructor._gradient_closure(optimizer, dummy_data, origin_grad, dummy_label)()
-                if i % 100 == 0:
-                    print("Using GradientReconstructor method...")
+                if iteration % 50 == 0: print(f"Iteration {iteration}: Using GradientReconstructor method...")
 
+            # Apply TV regularization if enabled
             if use_tv:
-                grad_diff += TV(dummy_data) * 1e-1  # Add Total Variation for smoothing
+                grad_diff += TV(dummy_data) * 1e-1
 
             grad_diff.backward()
             return grad_diff
 
+        # Perform optimization step
         optimizer.step(closure)
+
+        # Print intermediate progress every 50 iterations
+        if iteration % 50 == 0:
+            print(f"Iteration {iteration} - Gradient Matching Progress...")
 
     print("Gradient Matching Complete!")
     return dummy_data, dummy_label

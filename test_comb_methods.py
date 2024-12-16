@@ -89,13 +89,13 @@ def test_combined_method():
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
         origin_grad=input_gradient,
-        iteration=0,
-        switch_iteration=1000,
+        switch_iteration=100,  # Switch to InverseFed after 100 iterations
         use_tv=True
     )
 
     # Save and visualize reconstructed images
     plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
+    print("Reconstruction complete!")
 
 # Run the test
 if __name__ == "__main__":
