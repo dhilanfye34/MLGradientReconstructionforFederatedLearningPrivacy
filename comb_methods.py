@@ -7,6 +7,7 @@ from dlg_original import deep_leakage_from_gradients  # Importing original DLG m
 from inversefed.reconstruction_algorithms import GradientReconstructor  # Importing InverseFed method
 from inversefed.metrics import total_variation as TV  # Importing Total Variation (TV) regularization
 
+
 def load_image(file_path):
     """Load and preprocess an image for use in the reconstruction pipeline."""
     transform = transforms.Compose([
@@ -16,7 +17,6 @@ def load_image(file_path):
     ])
     image = Image.open(file_path).convert('RGB')
     return transform(image).unsqueeze(0)  # Add batch dimension
-
 
 
 def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1000, use_tv=True):
@@ -41,37 +41,45 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
     # Initialize dummy data and labels
     dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True)
 
-    # Determine the output size for labels
-    output_size = origin_grad[-1].shape[0] if len(origin_grad[-1].shape) > 0 else 1
+    # Set the output size for labels
+    output_size = 1000  # ImageNet has 1000 classes
+    dummy_label = torch.randint(0, output_size, (1,), requires_grad=False).to(origin_grad[0].device)
 
-    # Initialize dummy labels as integer class indices
-    dummy_label = torch.randint(0, 1000, (1,), requires_grad=False)  # ImageNet has 1000 classes
-
-
-    optimizer = torch.optim.LBFGS([dummy_data, dummy_label], lr=0.01)  # LBFGS optimizer
+    optimizer = torch.optim.LBFGS([dummy_data], lr=0.1)  # LBFGS optimizer
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
-    for iteration in range(2000): # past 200-300 iterations, maybe not changing much, # wait parameter to see if you dont need to change to second approach, then experience with lambda, make sure 0 and 1 work and then also then try 0.5 and others
+    print("Starting Combined Gradient Matching...")
+    for i in range(2000):  # Total iterations
+        if i % 100 == 0:
+            print(f"Iteration {i} - Running optimization...")
+
         def closure():
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
-            dummy_loss = F.cross_entropy(dummy_pred, dummy_label.argmax(dim=1))
+            dummy_loss = F.cross_entropy(dummy_pred, dummy_label)
             dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True)
 
-            if iteration < switch_iteration:
+            # Switch between DLG and GradientReconstructor
+            if i < switch_iteration:
                 grad_diff = deep_leakage_from_gradients(model, origin_grad)
+                if i % 100 == 0:
+                    print("Using DLG method...")
             else:
                 grad_diff = reconstructor._gradient_closure(optimizer, dummy_data, origin_grad, dummy_label)()
+                if i % 100 == 0:
+                    print("Using GradientReconstructor method...")
 
             if use_tv:
-                grad_diff += TV(dummy_data) * 1e-1
+                grad_diff += TV(dummy_data) * 1e-1  # Add Total Variation for smoothing
 
             grad_diff.backward()
             return grad_diff
 
         optimizer.step(closure)
 
+    print("Gradient Matching Complete!")
     return dummy_data, dummy_label
+
 
 if __name__ == "__main__":
     # Load the model
@@ -85,7 +93,7 @@ if __name__ == "__main__":
     input_image = load_image(input_image_path)
 
     # Generate dummy gradients for testing
-    target = torch.randint(0, 1000, (1,))  # Random label for the example
+    target = torch.tensor([243])  # Target class: 243 (German Shepherd in ImageNet)
     loss = F.cross_entropy(model(input_image), target)
     origin_grad = grad(loss, model.parameters(), create_graph=True)
 
@@ -94,6 +102,6 @@ if __name__ == "__main__":
     dummy_data, dummy_label = combined_gradient_matching(model, origin_grad, iteration)
 
     # Save and visualize results
-    output_image_path = "reconstructed_image.png"
+    output_image_path = "11794_Combined_output.png"
     torch.save(dummy_data, output_image_path)
     print(f"Reconstructed image saved to {output_image_path}")

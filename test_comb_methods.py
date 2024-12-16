@@ -55,7 +55,7 @@ def test_combined_method():
 
     # Select an image from the dataset
     # Load the input image
-    input_image_path = "11794_ResNet18_ImageNet_input.png"
+    input_image_path = "images/11794_ResNet18_ImageNet_input.png"
 
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
