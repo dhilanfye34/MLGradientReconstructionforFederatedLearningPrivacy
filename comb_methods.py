@@ -11,10 +11,12 @@ def load_image(file_path):
     """Load and preprocess an image for use in the reconstruction pipeline."""
     transform = transforms.Compose([
         transforms.Resize((224, 224)),  # ResNet18 expects 224x224 images
-        transforms.ToTensor()
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet normalization
     ])
     image = Image.open(file_path).convert('RGB')
     return transform(image).unsqueeze(0)  # Add batch dimension
+
 
 
 def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1000, use_tv=True):
@@ -43,13 +45,13 @@ def combined_gradient_matching(model, origin_grad, iteration, switch_iteration=1
     output_size = origin_grad[-1].shape[0] if len(origin_grad[-1].shape) > 0 else 1
 
     # Initialize dummy labels as integer class indices
-    dummy_label = torch.randint(0, output_size, (64,), requires_grad=False) 
+    dummy_label = torch.randint(0, 1000, (1,), requires_grad=False)  # ImageNet has 1000 classes
+
 
     optimizer = torch.optim.LBFGS([dummy_data, dummy_label], lr=0.01)  # LBFGS optimizer
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
-    for i in range(2000): # past 200-300 iterations, maybe not changing much, # wait parameter to see if you dont need to change to second approach, then experience with lambda, make sure 0 and 1 work and then also then try 0.5 and others
-        iteration = i;
+    for iteration in range(2000): # past 200-300 iterations, maybe not changing much, # wait parameter to see if you dont need to change to second approach, then experience with lambda, make sure 0 and 1 work and then also then try 0.5 and others
         def closure():
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)

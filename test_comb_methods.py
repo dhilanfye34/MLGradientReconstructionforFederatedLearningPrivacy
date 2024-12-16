@@ -7,6 +7,8 @@ from comb_methods import combined_gradient_matching
 from inversefed import construct_dataloaders, utils, consts
 from inversefed.reconstruction_algorithms import GradientReconstructor
 from dlg_original import deep_leakage_from_gradients
+from PIL import Image
+from torchvision import transforms  
 
 
 # Step 1: Define TrainingStrategy class for defs
@@ -52,19 +54,30 @@ def test_combined_method():
     model.eval()
 
     # Select an image from the dataset
-    idx = 3  # Change this index based on your dataset (e.g., CIFAR-10 or ImageNet)
-    img, label = validloader.dataset[idx]
-    labels = torch.as_tensor((label,), device=setup['device'])
-    ground_truth = img.to(**setup).unsqueeze(0)
+    # Load the input image
+    input_image_path = "11794_ResNet18_ImageNet_input.png"
+
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet normalization
+    ])
+
+    image = Image.open(input_image_path).convert("RGB")
+    ground_truth = transform(image).unsqueeze(0).to(**setup)
+
+    # Define the target label (German Shepherd class in ImageNet = 243)
+    label = torch.tensor([243], device=setup['device'])
 
     # Visualize and save the ground truth image
-    plot(ground_truth, f"Ground Truth (Label: {label})", f"{idx}_input_image.png")
+    plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
 
     # Compute the gradients
     model.zero_grad()
-    target_loss, _, _ = loss_fn(model(ground_truth), labels)
+    target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
     input_gradient = torch.autograd.grad(target_loss, model.parameters())
     input_gradient = [grad.detach() for grad in input_gradient]
+
 
     # Debug: Print gradient shapes
     print("Input Gradient Shapes:")
@@ -82,7 +95,7 @@ def test_combined_method():
     )
 
     # Save and visualize reconstructed images
-    plot(dummy_data, "Reconstructed (Combined)", f"{idx}_Combined_output.png")
+    plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
 
 # Run the test
 if __name__ == "__main__":
