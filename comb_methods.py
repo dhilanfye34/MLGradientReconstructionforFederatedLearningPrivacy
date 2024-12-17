@@ -34,7 +34,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=20, use_tv=T
 
     # Initialize dummy data and dummy labels
     dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True, device=origin_grad[0].device)
-    dummy_label = torch.tensor([243], device=origin_grad[0].device)  # Fixed label for German Shepherd
+    dummy_label = torch.tensor([243] * dummy_data.size(0), device=origin_grad[0].device)
 
     print("Debug: Initialized dummy_data and dummy_label.")
     print(f"Dummy data shape: {dummy_data.shape}, Device: {dummy_data.device}")
@@ -56,11 +56,12 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=20, use_tv=T
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label)
             print(f"Iteration {iteration}: Dummy loss = {dummy_loss.item()}")
 
-            dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True)
+            # Compute gradients for dummy loss
+            dummy_gradients = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
             print(f"Iteration {iteration}: Computed dummy gradients.")
 
             # Debug: Show the first few dummy gradient norms
-            for i, dg in enumerate(dummy_grad[:3]):
+            for i, dg in enumerate(dummy_gradients[:3]):
                 print(f"Dummy gradient {i} norm: {dg.norm().item()}")
 
             # Use DLG for the first iterations
@@ -74,7 +75,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=20, use_tv=T
             # Apply TV regularization if enabled
             if use_tv:
                 tv_loss = TV(dummy_data) * 1e-1
-                grad_diff += tv_loss
+                grad_diff = grad_diff + tv_loss 
                 print(f"Iteration {iteration}: TV Regularization = {tv_loss.item()}")
 
             print(f"Iteration {iteration}: Gradient Difference = {grad_diff.item()}")  # Debug gradient difference

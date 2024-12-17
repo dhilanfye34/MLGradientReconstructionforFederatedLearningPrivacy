@@ -30,15 +30,33 @@ ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
 # Step 3: Helper Functions
 def plot(tensor, title, save_path=None):
     """Helper function to plot and save images."""
-    tensor = tensor.clone().detach()
-    tensor.mul_(ds).add_(dm).clamp_(0, 1)
-    plt.imshow(tensor[0].permute(1, 2, 0).cpu())
-    plt.title(title)
-    if save_path:
-        save_image(tensor, save_path)
-        print(f"Saved image to {save_path}")
-    plt.show()
+    print("Debug: Entered plot function.")
+    
+    try:
+        # Debug tensor shape and device
+        print(f"Tensor shape: {tensor.shape}, Device: {tensor.device}")
 
+        tensor = tensor.clone().detach()
+        print("Debug: Cloned and detached tensor.")
+
+        tensor.mul_(ds).add_(dm).clamp_(0, 1)
+        print("Debug: Applied normalization to tensor.")
+
+        tensor_to_plot = tensor[0].permute(1, 2, 0).cpu()
+        print(f"Debug: Tensor after permute and move to CPU: Shape = {tensor_to_plot.shape}")
+        
+        plt.imshow(tensor_to_plot)
+        plt.title(title)
+        
+        if save_path:
+            save_image(tensor, save_path)
+            print(f"Debug: Saved image to {save_path}")
+
+        plt.show()
+        print("Debug: Completed plt.show()")
+    except Exception as e:
+        print(f"Error in plot function: {e}")
+        raise
 
 # Step 4: Test Combined Gradient Matching
 def test_combined_method():
