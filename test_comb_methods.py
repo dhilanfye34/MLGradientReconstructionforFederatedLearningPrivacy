@@ -78,10 +78,14 @@ def test_combined_method():
     input_gradient = [grad.detach() for grad in input_gradient]
     print("Input gradients computed successfully!")
 
-    # Print gradient shapes for debugging
-    print("Gradient Shapes:")
+    # Debug: Print gradient shapes
+    print(f"Number of gradients: {len(input_gradient)}")
     for i, grad in enumerate(input_gradient):
-        print(f"Gradient {i}: {grad.shape}")
+        print(f"Gradient {i} shape: {grad.shape}")
+
+    # Debug: Confirm device alignment
+    print("Model device:", next(model.parameters()).device)
+    print("Image device:", ground_truth.device)
 
     # Step 5: Run the Combined Method
     print("Starting Combined Gradient Matching...")
@@ -91,7 +95,7 @@ def test_combined_method():
         switch_iteration=100,  # Switch to InverseFed after 100 iterations
         use_tv=True
     )
-
+    
     # Save and visualize reconstructed images
     print("Reconstruction complete! Visualizing results...")
     plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")

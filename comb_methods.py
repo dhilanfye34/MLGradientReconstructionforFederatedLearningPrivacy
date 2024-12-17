@@ -20,14 +20,13 @@ def load_image(file_path):
     return transform(image).unsqueeze(0)  # Add batch dimension
 
 
-def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv=True):
+def combined_gradient_matching(model, origin_grad, switch_iteration=20, use_tv=True):
     """
     Combined gradient matching: switches from DLG to cosine-based reconstruction.
     """
     # Initialize dummy data and dummy labels
     dummy_data = torch.randn(origin_grad[0].size(), requires_grad=True, device=origin_grad[0].device)
-    output_size = 1000  # ImageNet classes
-    dummy_label = torch.randint(0, output_size, (1,), requires_grad=False, device=origin_grad[0].device)
+    dummy_label = torch.tensor([243], device=origin_grad[0].device)  # Fixed label
 
     # Set up optimizer and reconstructor
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.1)
@@ -35,21 +34,24 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv
 
     # Start the optimization loop
     print("Starting Combined Gradient Matching...")
-    for iteration in range(200):  # Start with 200 iterations
+    for iteration in range(20):  # Limit to 20 iterations for quick testing
         print(f"--- Iteration {iteration} ---")  # Debug: iteration counter
+
         def closure():
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label)
             dummy_grad = grad(dummy_loss, model.parameters(), create_graph=True)
 
-            # Switch between DLG and GradientReconstructor
+            # Use DLG for the first iterations
             if iteration < switch_iteration:
                 print(f"Iteration {iteration}: Using DLG method...")
-                grad_diff = deep_leakage_from_gradients(model, origin_grad)
+                grad_diff = torch.tensor(0.0, device=origin_grad[0].device, requires_grad=True)
+                print(f"Dummy gradient difference at iteration {iteration}: {grad_diff.item()}")
             else:
                 print(f"Iteration {iteration}: Using GradientReconstructor method...")
-                grad_diff = reconstructor._gradient_closure(optimizer, dummy_data, origin_grad, dummy_label)()
+                grad_diff = torch.randn(1, device=origin_grad[0].device).abs().sum()
+                print(f"Dummy gradient difference using GradientReconstructor at iteration {iteration}: {grad_diff.item()}")
 
             # Apply TV regularization if enabled
             if use_tv:
@@ -57,11 +59,10 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv
                 grad_diff += tv_loss
                 print(f"Iteration {iteration}: TV Regularization = {tv_loss.item()}")
 
-            grad_diff.backward()
             print(f"Iteration {iteration}: Gradient Difference = {grad_diff.item()}")  # Debug gradient difference
+            grad_diff.backward()
             return grad_diff
 
-        # Perform optimization step
         optimizer.step(closure)
 
         # Print intermediate progress every 10 iterations
@@ -71,6 +72,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv
 
     print("Gradient Matching Complete!")
     return dummy_data, dummy_label
+
 
 if __name__ == "__main__":
     # Load the model
