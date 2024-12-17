@@ -8,7 +8,7 @@ from inversefed import construct_dataloaders, utils, consts
 from PIL import Image
 from torchvision import transforms
 
-# Step 1: Define TrainingStrategy class for defs
+# Step 1: Define TrainingStrategy class
 class TrainingStrategy:
     def __init__(self, augmentations=None):
         self.augmentations = augmentations
@@ -30,38 +30,17 @@ ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
 # Step 3: Helper Functions
 def plot(tensor, title, save_path=None):
     """Helper function to plot and save images."""
-    print("Debug: Entered plot function.")
-    
-    try:
-        # Debug tensor shape and device
-        print(f"Tensor shape: {tensor.shape}, Device: {tensor.device}")
-
-        tensor = tensor.clone().detach()
-        print("Debug: Cloned and detached tensor.")
-
-        tensor.mul_(ds).add_(dm).clamp_(0, 1)
-        print("Debug: Applied normalization to tensor.")
-
-        tensor_to_plot = tensor[0].permute(1, 2, 0).cpu()
-        print(f"Debug: Tensor after permute and move to CPU: Shape = {tensor_to_plot.shape}")
-        
-        plt.imshow(tensor_to_plot)
-        plt.title(title)
-        
-        if save_path:
-            save_image(tensor, save_path)
-            print(f"Debug: Saved image to {save_path}")
-
-        plt.show()
-        print("Debug: Completed plt.show()")
-    except Exception as e:
-        print(f"Error in plot function: {e}")
-        raise
+    tensor = tensor.clone().detach()
+    tensor.mul_(ds).add_(dm).clamp_(0, 1)
+    tensor_to_plot = tensor[0].permute(1, 2, 0).cpu()
+    plt.imshow(tensor_to_plot)
+    plt.title(title)
+    if save_path:
+        save_image(tensor, save_path)
+    plt.show()
 
 # Step 4: Test Combined Gradient Matching
 def test_combined_method():
-    print("Initializing ResNet18 and loading input image...")
-
     # Load pretrained ResNet18
     model = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
     model.to(**setup)
@@ -69,43 +48,25 @@ def test_combined_method():
 
     # Load the input image
     input_image_path = "images/11794_ResNet18_ImageNet_input.png"
-    print(f"Loading input image from: {input_image_path}")
-
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet normalization
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-
     image = Image.open(input_image_path).convert("RGB")
     ground_truth = transform(image).unsqueeze(0).to(**setup)
 
-    # Define the target label (German Shepherd class in ImageNet = 243)
-    label = torch.tensor([243], device=setup['device'])
-    print(f"Target label for the image: {label.item()} (German Shepherd)")
-
-    # Visualize and save the ground truth image
+    # Target label
+    label = torch.tensor([243], device=setup['device'])  # German Shepherd class
     plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
 
-    # Compute the gradients
-    print("Computing input gradients for the ground truth image...")
+    # Compute gradients
     model.zero_grad()
     target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
     input_gradient = torch.autograd.grad(target_loss, model.parameters())
     input_gradient = [grad.detach() for grad in input_gradient]
-    print("Input gradients computed successfully!")
 
-    # Debug: Print gradient shapes
-    # Debugging Gradient Shapes
-    print("Debug: Gradient shapes before passing to combined_gradient_matching:")
-    for i, grad in enumerate(input_gradient):
-        print(f"Gradient {i} shape: {grad.shape}, Device: {grad.device}")
-
-    # Debug: Confirm device alignment
-    print("Model device:", next(model.parameters()).device)
-    print("Image device:", ground_truth.device)
-
-    # Step 5: Run the Combined Method
+    # Run combined gradient matching
     print("Starting Combined Gradient Matching...")
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
@@ -113,8 +74,7 @@ def test_combined_method():
         use_tv=True
     )
 
-    # Save and visualize reconstructed images
-    print("Reconstruction complete! Visualizing results...")
+    # Save and visualize reconstructed image
     plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
     print("Reconstructed image saved successfully.")
 
