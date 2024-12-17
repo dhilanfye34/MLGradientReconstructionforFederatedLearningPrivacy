@@ -109,8 +109,7 @@ def test_combined_method():
     print("Starting Combined Gradient Matching...")
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
-        origin_grad=input_gradient,
-        switch_iteration=10,  # Switch to InverseFed after 10 iterations
+        origin_grad=input_gradient, 
         use_tv=True
     )
 
