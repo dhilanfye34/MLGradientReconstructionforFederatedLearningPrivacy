@@ -8,7 +8,6 @@ from inversefed import construct_dataloaders, utils, consts
 from PIL import Image
 from torchvision import transforms
 
-
 # Step 1: Define TrainingStrategy class for defs
 class TrainingStrategy:
     def __init__(self, augmentations=None):
@@ -79,9 +78,10 @@ def test_combined_method():
     print("Input gradients computed successfully!")
 
     # Debug: Print gradient shapes
-    print(f"Number of gradients: {len(input_gradient)}")
+    # Debugging Gradient Shapes
+    print("Debug: Gradient shapes before passing to combined_gradient_matching:")
     for i, grad in enumerate(input_gradient):
-        print(f"Gradient {i} shape: {grad.shape}")
+        print(f"Gradient {i} shape: {grad.shape}, Device: {grad.device}")
 
     # Debug: Confirm device alignment
     print("Model device:", next(model.parameters()).device)
@@ -92,10 +92,10 @@ def test_combined_method():
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
         origin_grad=input_gradient,
-        switch_iteration=100,  # Switch to InverseFed after 100 iterations
+        switch_iteration=10,  # Switch to InverseFed after 10 iterations
         use_tv=True
     )
-    
+
     # Save and visualize reconstructed images
     print("Reconstruction complete! Visualizing results...")
     plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
