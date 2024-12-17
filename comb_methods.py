@@ -19,7 +19,7 @@ def load_image(file_path):
     return transform(image).unsqueeze(0)  # Add batch dimension
 
 
-def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv=True):
+def combined_gradient_matching(model, origin_grad, switch_iteration=100, use_tv=True):
     """
     Combined gradient matching: switches from DLG to cosine-based reconstruction.
     """
@@ -32,9 +32,11 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.1)
     reconstructor = GradientReconstructor(model, mean_std=(0.0, 1.0), config={'cost_fn': 'sim'}, num_images=1)
 
-    # Start the optimization loop
     print("Starting Combined Gradient Matching...")
     for iteration in range(200):  # Start with 200 iterations
+        if iteration % 50 == 0:
+            print(f"Iteration {iteration}: Running optimization...")
+
         def closure():
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
@@ -43,11 +45,11 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv
 
             # Switch between DLG and GradientReconstructor
             if iteration < switch_iteration:
+                print(f"Iteration {iteration}: Using DLG method")
                 grad_diff = deep_leakage_from_gradients(model, origin_grad)
-                if iteration % 50 == 0: print(f"Iteration {iteration}: Using DLG method...")
             else:
+                print(f"Iteration {iteration}: Using GradientReconstructor method")
                 grad_diff = reconstructor._gradient_closure(optimizer, dummy_data, origin_grad, dummy_label)()
-                if iteration % 50 == 0: print(f"Iteration {iteration}: Using GradientReconstructor method...")
 
             # Apply TV regularization if enabled
             if use_tv:
@@ -58,10 +60,6 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=1000, use_tv
 
         # Perform optimization step
         optimizer.step(closure)
-
-        # Print intermediate progress every 50 iterations
-        if iteration % 50 == 0:
-            print(f"Iteration {iteration} - Gradient Matching Progress...")
 
     print("Gradient Matching Complete!")
     return dummy_data, dummy_label

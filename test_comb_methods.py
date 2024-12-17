@@ -5,10 +5,8 @@ from torchvision.utils import save_image
 from torchvision.models import ResNet18_Weights
 from comb_methods import combined_gradient_matching
 from inversefed import construct_dataloaders, utils, consts
-from inversefed.reconstruction_algorithms import GradientReconstructor
-from dlg_original import deep_leakage_from_gradients
 from PIL import Image
-from torchvision import transforms  
+from torchvision import transforms
 
 
 # Step 1: Define TrainingStrategy class for defs
@@ -25,9 +23,6 @@ class TrainingStrategy:
 # Step 2: System Setup
 setup = utils.system_startup()
 defs = TrainingStrategy(augmentations=None)
-
-# Load the dataset
-loss_fn, trainloader, validloader = construct_dataloaders('CIFAR10', defs)
 
 # Load normalization constants for ImageNet
 dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
@@ -48,14 +43,16 @@ def plot(tensor, title, save_path=None):
 
 # Step 4: Test Combined Gradient Matching
 def test_combined_method():
+    print("Initializing ResNet18 and loading input image...")
+
     # Load pretrained ResNet18
     model = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
     model.to(**setup)
     model.eval()
 
-    # Select an image from the dataset
     # Load the input image
     input_image_path = "images/11794_ResNet18_ImageNet_input.png"
+    print(f"Loading input image from: {input_image_path}")
 
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -68,24 +65,26 @@ def test_combined_method():
 
     # Define the target label (German Shepherd class in ImageNet = 243)
     label = torch.tensor([243], device=setup['device'])
+    print(f"Target label for the image: {label.item()} (German Shepherd)")
 
     # Visualize and save the ground truth image
     plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
 
     # Compute the gradients
+    print("Computing input gradients for the ground truth image...")
     model.zero_grad()
     target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
     input_gradient = torch.autograd.grad(target_loss, model.parameters())
     input_gradient = [grad.detach() for grad in input_gradient]
+    print("Input gradients computed successfully!")
 
-
-    # Debug: Print gradient shapes
-    print("Input Gradient Shapes:")
+    # Print gradient shapes for debugging
+    print("Gradient Shapes:")
     for i, grad in enumerate(input_gradient):
         print(f"Gradient {i}: {grad.shape}")
 
     # Step 5: Run the Combined Method
-    print("Testing Combined Gradient Matching...")
+    print("Starting Combined Gradient Matching...")
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
         origin_grad=input_gradient,
@@ -94,8 +93,9 @@ def test_combined_method():
     )
 
     # Save and visualize reconstructed images
+    print("Reconstruction complete! Visualizing results...")
     plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
-    print("Reconstruction complete!")
+    print("Reconstructed image saved successfully.")
 
 # Run the test
 if __name__ == "__main__":
