@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn.functional as F
 from torch.autograd import grad
@@ -24,6 +25,9 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=100, use_tv=
     """
     Combined gradient matching: switches from DLG to cosine-based reconstruction.
     """
+    results_dir = "results"
+    os.makedirs(results_dir, exist_ok=True)
+
     # Initialize dummy data and labels
     dummy_data = torch.randn_like(origin_grad[0], requires_grad=True)
     dummy_label = torch.tensor([243] * dummy_data.size(0), device=origin_grad[0].device)
