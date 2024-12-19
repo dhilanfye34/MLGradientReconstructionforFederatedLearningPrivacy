@@ -25,14 +25,14 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=100, use_tv=
     Combined gradient matching: switches from DLG to cosine-based reconstruction.
     """
     # Initialize dummy data and labels
-    dummy_data = torch.rand(origin_grad[0].size(), requires_grad=True, device=origin_grad[0].device)
+    dummy_data = torch.randn_like(origin_grad[0], requires_grad=True)
     dummy_label = torch.tensor([243] * dummy_data.size(0), device=origin_grad[0].device)
 
     # Set up optimizer
-    optimizer = torch.optim.LBFGS([dummy_data], lr=0.1)
+    optimizer = torch.optim.LBFGS([dummy_data], lr=0.01)
 
     # Optimization loop
-    for iteration in range(300):
+    for iteration in range(500):
         print(f"--- Iteration {iteration} ---")  # Iteration marker
 
         def closure():
@@ -50,7 +50,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=100, use_tv=
 
             # Debug: Show the first few dummy gradient norms
             for i, dg in enumerate(dummy_gradients[:3]):
-                print(f"Dummy gradient {i} norm: {dg.norm().item()}")
+                print(f"Layer {i}: Norm = {dg.norm().item()}")
 
             # Use DLG for the first iterations
             if iteration < switch_iteration:
@@ -62,7 +62,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=100, use_tv=
 
             # Apply TV regularization if enabled
             if use_tv:
-                tv_loss = TV(dummy_data) * 1e-3
+                tv_loss = TV(dummy_data) * 1e-2
                 grad_diff = grad_diff + tv_loss 
                 print(f"Iteration {iteration}: TV Regularization = {tv_loss.item()}")
 
@@ -77,12 +77,14 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=100, use_tv=
 
         # Save intermediate results every 10 iterations
         if iteration % 10 == 0:
+            print(f"Iteration {iteration}: Saving reconstructed image...")
             mean = torch.tensor([0.485, 0.456, 0.406], device=dummy_data.device).view(1, 3, 1, 1)
             std = torch.tensor([0.229, 0.224, 0.225], device=dummy_data.device).view(1, 3, 1, 1)
-            normalized_data = torch.clamp(dummy_data * std + mean, 0, 1)
-            save_image(normalized_data.clone().detach(), f"reconstructed_iter_{iteration}.png")
+            normalized_data = (dummy_data * std + mean).clamp(0, 1)
+            save_image(normalized_data.clone().detach(), f"results/reconstructed_iter_{iteration}.png")
 
     print("Gradient Matching Complete!")
+    print(f"Final Dummy Data Stats: Mean = {dummy_data.mean().item()}, Std = {dummy_data.std().item()}")
     return dummy_data, dummy_label
 
 

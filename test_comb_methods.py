@@ -63,8 +63,15 @@ def test_combined_method():
     # Compute gradients
     model.zero_grad()
     target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
+    pred = model(ground_truth).softmax(dim=1)
+    print(f"Model Prediction Probabilities: {pred[0][:10]}")  # Check top 10 probabilities
+    print(f"Loss Value: {target_loss.item()}")
     input_gradient = torch.autograd.grad(target_loss, model.parameters())
     input_gradient = [grad.detach() for grad in input_gradient]
+    print("Analyzing Original Gradients:")
+    for i, grad in enumerate(input_gradient):
+        print(f"Gradient {i}: Norm = {grad.norm().item()}, Shape = {grad.shape}")
+
 
     # Run combined gradient matching
     print("Starting Combined Gradient Matching...")
