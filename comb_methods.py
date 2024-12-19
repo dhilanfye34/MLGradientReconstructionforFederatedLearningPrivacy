@@ -36,23 +36,40 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=100, use_tv=
         print(f"--- Iteration {iteration} ---")  # Iteration marker
 
         def closure():
+            print(f"Iteration {iteration}: Inside closure function.")
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label)
 
-            # Compute dummy gradients
-            dummy_gradients = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
+            if optimizer.state[optimizer.param_groups[0]['params'][0]]['n_iter'] == 0:
+                print(f"Iteration {iteration}: Dummy loss = {dummy_loss.item()}")
 
-            # Compute gradient difference
+            # Compute gradients for dummy loss
+            dummy_gradients = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
+            print(f"Iteration {iteration}: Computed dummy gradients.")
+
+            # Debug: Show the first few dummy gradient norms
+            for i, dg in enumerate(dummy_gradients[:3]):
+                print(f"Dummy gradient {i} norm: {dg.norm().item()}")
+
+            # Use DLG for the first iterations
             if iteration < switch_iteration:
+                print(f"Iteration {iteration}: Using dummy DLG gradient difference...")
                 grad_diff = sum((dg - og).norm() for dg, og in zip(dummy_gradients, origin_grad))
             else:
+                print(f"Iteration {iteration}: Using dummy GradientReconstructor gradient difference...")
                 grad_diff = torch.randn(1, device=origin_grad[0].device).abs().sum()
 
-            # TV Regularization
-            if use_tv and iteration % 5 == 0:
-                grad_diff += TV(dummy_data) * 1e-3
+            # Apply TV regularization if enabled
+            if use_tv:
+                tv_loss = TV(dummy_data) * 1e-3
+                grad_diff = grad_diff + tv_loss 
+                print(f"Iteration {iteration}: TV Regularization = {tv_loss.item()}")
 
+            # Ensure grad_diff requires gradient
+            grad_diff.requires_grad_()
+
+            print(f"Iteration {iteration}: Gradient Difference = {grad_diff.item()}")  # Debug gradient difference
             grad_diff.backward()
             return grad_diff
 
