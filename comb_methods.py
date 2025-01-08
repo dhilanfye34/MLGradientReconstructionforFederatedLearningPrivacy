@@ -21,21 +21,20 @@ def load_image(file_path):
     return transform(image).unsqueeze(0)
 
 
-def combined_gradient_matching(model, origin_grad, switch_iteration=500, use_tv=True, local_dataset=None):
+def combined_gradient_matching(model, origin_grad, switch_iteration=500, use_tv=True):
     """
     Combined gradient matching: switches from DLG to cosine-based reconstruction.
-    Now supports a device mode for edge devices like Raspberry Pi.
     """
-    # Initialize dummy data based on local dataset if provided
-    if local_dataset:
-        dummy_data = local_dataset.to(origin_grad[0].device)
-    else:
-        dummy_data = torch.randn_like(origin_grad[0], requires_grad=True)
+    results_dir = "results"
+    os.makedirs(results_dir, exist_ok=True)
 
+    # Initialize dummy data and labels
+    dummy_data = torch.randn_like(origin_grad[0], requires_grad=True)
     dummy_label = torch.tensor([243] * dummy_data.size(0), device=origin_grad[0].device)
 
     # Set up optimizer
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.01)
+
     # Optimization loop
     for iteration in range(1000):
         print(f"--- Iteration {iteration} ---")  # Iteration marker
