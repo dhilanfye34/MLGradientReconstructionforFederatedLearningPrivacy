@@ -7,6 +7,7 @@ from comb_methods import combined_gradient_matching
 from inversefed import construct_dataloaders, utils, consts
 from PIL import Image
 from torchvision import transforms
+import numpy as np
 
 # Step 1: Define TrainingStrategy class
 class TrainingStrategy:
@@ -26,6 +27,12 @@ defs = TrainingStrategy(augmentations=None)
 # Load normalization constants for ImageNet
 dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
 ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
+
+# Load gradients from the Raspberry Pi
+def load_gradients_from_file():
+    gradients = np.load("gradients.npy")
+    print("Loaded gradients:", gradients.shape)
+    return gradients
 
 # Step 3: Helper Functions
 def plot(tensor, title, save_path=None):
@@ -77,7 +84,7 @@ def test_combined_method():
     print("Starting Combined Gradient Matching...")
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
-        origin_grad=input_gradient, 
+        origin_grad=load_gradients_from_file(), 
         use_tv=True
     )
 
