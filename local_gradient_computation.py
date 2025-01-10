@@ -1,29 +1,42 @@
-# File: local_gradient_computation.py
 import torch
-import torch.nn as nn
-from torchvision import datasets, transforms
-from inversefed.nn.models import construct_model
+import torchvision
+import torchvision.transforms as transforms
+from torch import nn, optim
 
-# Load ResNet18 model
-model, _ = construct_model("ResNet18", num_classes=1000)
-model.eval()
+def compute_gradients():
+    # Load a small dataset (simulated or downloaded)
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,))
+    ])
+    dataset = torchvision.datasets.FakeData(transform=transform, size=10)  # Use FakeData for testing
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
 
-# Load a small dataset
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
-dataset = datasets.FakeData(transform=transform)
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=1)
+    # Define a simple model
+    model = nn.Sequential(
+        nn.Linear(3 * 32 * 32, 128),
+        nn.ReLU(),
+        nn.Linear(128, 10)
+    )
+    model = model.to("cpu")  # Ensure compatibility with Raspberry Pi
 
-# Perform gradient computation
-for data, target in dataloader:
-    data, target = data.to('cpu'), target.to('cpu')
-    output = model(data)
-    loss = nn.CrossEntropyLoss()(output, target)
-    gradients = torch.autograd.grad(loss, model.parameters(), create_graph=True)
+    # Loss function and optimizer
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.01)
 
-    # Save gradients locally
-    torch.save(gradients, "local_gradients.pt")
-    break  # Compute for one batch
+    # Iterate over the dataset and compute gradients
+    for inputs, labels in dataloader:
+        inputs = inputs.view(inputs.size(0), -1)  # Flatten inputs
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+
+        # Save gradients to a file
+        gradients = [param.grad.clone() for param in model.parameters()]
+        torch.save(gradients, "gradients.pt")
+        print("Gradients saved to gradients.pt")
+        break  # Stop after one batch for demonstration
+
+if __name__ == "__main__":
+    compute_gradients()
