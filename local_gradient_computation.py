@@ -1,42 +1,19 @@
-import torch
-import torchvision
-import torchvision.transforms as transforms
-from torch import nn, optim
+import numpy as np
 
 def compute_gradients():
-    # Load a small dataset (simulated or downloaded)
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))
-    ])
-    dataset = torchvision.datasets.FakeData(transform=transform, size=10)  # Use FakeData for testing
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=True)
+    # Simulate gradient computation with NumPy
+    inputs = np.random.randn(10, 3 * 32 * 32)  # Mock input data
+    weights = np.random.randn(3 * 32 * 32, 10)  # Mock model weights
+    labels = np.random.randint(0, 10, size=(10,))  # Mock labels
 
-    # Define a simple model
-    model = nn.Sequential(
-        nn.Linear(3 * 32 * 32, 128),
-        nn.ReLU(),
-        nn.Linear(128, 10)
-    )
-    model = model.to("cpu")  # Ensure compatibility with Raspberry Pi
+    # Compute "gradients"
+    logits = np.dot(inputs, weights)  # Forward pass
+    probabilities = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)  # Softmax
+    gradients = np.dot(inputs.T, probabilities - np.eye(10)[labels])  # Simplified gradients
 
-    # Loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.01)
-
-    # Iterate over the dataset and compute gradients
-    for inputs, labels in dataloader:
-        inputs = inputs.view(inputs.size(0), -1)  # Flatten inputs
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-
-        # Save gradients to a file
-        gradients = [param.grad.clone() for param in model.parameters()]
-        torch.save(gradients, "gradients.pt")
-        print("Gradients saved to gradients.pt")
-        break  # Stop after one batch for demonstration
+    # Save gradients to file
+    np.save("gradients.npy", gradients)
+    print("Gradients saved to gradients.npy")
 
 if __name__ == "__main__":
     compute_gradients()
