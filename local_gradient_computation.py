@@ -1,19 +1,21 @@
 import numpy as np
 
-def compute_gradients():
-    # Simulate gradient computation with NumPy
-    inputs = np.random.randn(10, 3 * 32 * 32)  # Mock input data
-    weights = np.random.randn(3 * 32 * 32, 10)  # Mock model weights
-    labels = np.random.randint(0, 10, size=(10,))  # Mock labels
-
-    # Compute "gradients"
-    logits = np.dot(inputs, weights)  # Forward pass
-    probabilities = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)  # Softmax
-    gradients = np.dot(inputs.T, probabilities - np.eye(10)[labels])  # Simplified gradients
-
-    # Save gradients to file
-    np.save("gradients.npy", gradients)
-    print("Gradients saved to gradients.npy")
+# Fake function to simulate gradient computation
+def compute_gradients_numpy():
+    # Example of simulated gradients for a simple model
+    # Replace this with your actual logic for generating gradients
+    gradients = [
+        np.random.randn(64, 3, 7, 7),  # Example gradient for a convolutional layer
+        np.random.randn(64),          # Example gradient for a bias term
+        np.random.randn(128, 64, 3, 3),
+        np.random.randn(128),
+    ]
+    return gradients
 
 if __name__ == "__main__":
-    compute_gradients()
+    # Compute gradients
+    gradients = compute_gradients_numpy()
+
+    # Save gradients as a .npy file
+    np.save("gradients.npy", gradients)
+    print("Gradients saved to gradients.npy")
