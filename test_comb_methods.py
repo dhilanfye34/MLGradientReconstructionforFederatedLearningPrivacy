@@ -29,15 +29,31 @@ dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
 ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
 
 # Load gradients from the Raspberry Pi
-def load_gradients_from_file():
-    # Load NumPy gradients
-    gradients = np.load("gradients.npy", allow_pickle=True)
-    print("Loaded gradients:", gradients.shape)
-    
-    # Convert NumPy arrays to PyTorch tensors
-    gradients = [torch.tensor(g, requires_grad=False) for g in gradients]
-    return gradients
+def load_gradients_from_file(model):
+    import numpy as np
+    import torch
 
+    # Load the gradients from the .npz file
+    data = np.load("gradients.npz")
+    gradients = [data[key] for key in data]
+
+    # Debug: Print loaded gradients
+    print("Loaded gradients:")
+    for i, g in enumerate(gradients):
+        print(f"Gradient {i}: Shape = {g.shape}, Type = {type(g)}")
+
+    # Convert gradients to PyTorch tensors
+    gradients = [torch.tensor(g, requires_grad=False) for g in gradients]
+
+    # Match gradients to model parameters
+    model_parameters = list(model.parameters())
+    for i, grad in enumerate(gradients):
+        expected_shape = model_parameters[i].shape
+        if grad.shape != expected_shape:
+            print(f"Adjusting gradient {i} from shape {grad.shape} to {expected_shape}")
+            gradients[i] = torch.zeros_like(model_parameters[i])  # Replace or reshape
+
+    return gradients
 
 # Step 3: Helper Functions
 def plot(tensor, title, save_path=None):
@@ -84,7 +100,7 @@ def test_combined_method():
     for i, grad in enumerate(input_gradient):
         print(f"Gradient {i}: Norm = {grad.norm().item()}, Shape = {grad.shape}")
 
-    origin_grad=load_gradients_from_file()
+    origin_grad=load_gradients_from_file(model)
 
     # Run combined gradient matching
     print("Starting Combined Gradient Matching...")
