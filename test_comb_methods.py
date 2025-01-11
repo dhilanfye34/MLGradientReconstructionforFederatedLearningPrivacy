@@ -30,9 +30,14 @@ ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
 
 # Load gradients from the Raspberry Pi
 def load_gradients_from_file():
-    gradients = np.load("gradients.npy")
+    # Load NumPy gradients
+    gradients = np.load("gradients.npy", allow_pickle=True)
     print("Loaded gradients:", gradients.shape)
+    
+    # Convert NumPy arrays to PyTorch tensors
+    gradients = [torch.tensor(g, requires_grad=False) for g in gradients]
     return gradients
+
 
 # Step 3: Helper Functions
 def plot(tensor, title, save_path=None):
@@ -79,12 +84,13 @@ def test_combined_method():
     for i, grad in enumerate(input_gradient):
         print(f"Gradient {i}: Norm = {grad.norm().item()}, Shape = {grad.shape}")
 
+    origin_grad=load_gradients_from_file()
 
     # Run combined gradient matching
     print("Starting Combined Gradient Matching...")
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
-        origin_grad=load_gradients_from_file(), 
+        origin_grad=origin_grad, 
         use_tv=True
     )
 

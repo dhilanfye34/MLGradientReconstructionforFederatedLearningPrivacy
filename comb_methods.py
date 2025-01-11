@@ -29,7 +29,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=500, use_tv=
     os.makedirs(results_dir, exist_ok=True)
 
     # Initialize dummy data and labels
-    dummy_data = torch.randn_like(origin_grad[0], requires_grad=True)
+    dummy_data = torch.randn((1, 3, 224, 224), requires_grad=True, device=origin_grad[0].device)
     dummy_label = torch.tensor([243] * dummy_data.size(0), device=origin_grad[0].device)
 
     # Set up optimizer
@@ -59,7 +59,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=500, use_tv=
             # Use DLG for the first iterations
             if iteration < switch_iteration:
                 print(f"Iteration {iteration}: Using dummy DLG gradient difference...")
-                grad_diff = sum((dg - og).norm() for dg, og in zip(dummy_gradients, origin_grad))
+                grad_diff = sum((dg.detach() - og.detach()).norm() for dg, og in zip(dummy_gradients, origin_grad))
             else:
                 print(f"Iteration {iteration}: Using dummy GradientReconstructor gradient difference...")
                 grad_diff = torch.randn(1, device=origin_grad[0].device).abs().sum()
