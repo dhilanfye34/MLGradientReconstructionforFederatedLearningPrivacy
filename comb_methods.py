@@ -21,7 +21,7 @@ def load_image(file_path):
     return transform(image).unsqueeze(0)
 
 
-def combined_gradient_matching(model, origin_grad, switch_iteration=500, use_tv=True):
+def combined_gradient_matching(model, origin_grad, switch_iteration=50, use_tv=True):
     """
     Combined gradient matching: switches from DLG to cosine-based reconstruction.
     """
@@ -36,7 +36,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=500, use_tv=
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.01)
 
     # Optimization loop
-    for iteration in range(1000):
+    for iteration in range(100):
         print(f"--- Iteration {iteration} ---")  # Iteration marker
 
         def closure():

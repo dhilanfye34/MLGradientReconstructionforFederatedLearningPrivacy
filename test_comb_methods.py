@@ -1,13 +1,14 @@
+import socket
+import pickle  # For serializing/deserializing data
 import torch
 import torchvision
 import matplotlib.pyplot as plt
 from torchvision.utils import save_image
 from torchvision.models import ResNet18_Weights
 from comb_methods import combined_gradient_matching
-from inversefed import construct_dataloaders, utils, consts
+from inversefed import utils, consts
 from PIL import Image
 from torchvision import transforms
-import numpy as np
 
 # Step 1: Define TrainingStrategy class
 class TrainingStrategy:
@@ -28,32 +29,6 @@ defs = TrainingStrategy(augmentations=None)
 dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
 ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
 
-# Load gradients from the Raspberry Pi
-def load_gradients_from_file(model):
-    import numpy as np
-    import torch
-
-    # Load the gradients from the .npz file
-    data = np.load("gradients.npz")
-    gradients = [data[key] for key in data]
-
-    # Debug: Print loaded gradients
-    print("Loaded gradients:")
-    for i, g in enumerate(gradients):
-        print(f"Gradient {i}: Shape = {g.shape}, Type = {type(g)}")
-
-    # Convert gradients to PyTorch tensors
-    gradients = [torch.tensor(g, requires_grad=False) for g in gradients]
-
-    # Match gradients to model parameters
-    model_parameters = list(model.parameters())
-    for i, grad in enumerate(gradients):
-        expected_shape = model_parameters[i].shape
-        if grad.shape != expected_shape:
-            print(f"Adjusting gradient {i} from shape {grad.shape} to {expected_shape}")
-            gradients[i] = torch.zeros_like(model_parameters[i])  # Replace or reshape
-
-    return gradients
 
 # Step 3: Helper Functions
 def plot(tensor, title, save_path=None):
@@ -66,6 +41,29 @@ def plot(tensor, title, save_path=None):
     if save_path:
         save_image(tensor, save_path)
     plt.show()
+
+
+# Send gradients to Raspberry Pi and get processed gradients
+def send_to_raspberry_pi(gradients, server_ip="RASPBERRY_PI_IP", port=12345):
+    """
+    Communicate with the Raspberry Pi server to send and receive gradients.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+        client_socket.connect((server_ip, port))
+        serialized_gradients = pickle.dumps(gradients)  # Serialize gradients
+        client_socket.sendall(serialized_gradients)  # Send gradients
+
+        # Receive processed gradients
+        data = b""
+        while True:
+            chunk = client_socket.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+
+    processed_gradients = pickle.loads(data)  # Deserialize received gradients
+    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
+
 
 # Step 4: Test Combined Gradient Matching
 def test_combined_method():
@@ -95,24 +93,25 @@ def test_combined_method():
     print(f"Model Prediction Probabilities: {pred[0][:10]}")  # Check top 10 probabilities
     print(f"Loss Value: {target_loss.item()}")
     input_gradient = torch.autograd.grad(target_loss, model.parameters())
-    input_gradient = [grad.detach() for grad in input_gradient]
-    print("Analyzing Original Gradients:")
-    for i, grad in enumerate(input_gradient):
-        print(f"Gradient {i}: Norm = {grad.norm().item()}, Shape = {grad.shape}")
+    input_gradient = [grad.detach().numpy() for grad in input_gradient]  # Convert to numpy
 
-    origin_grad=load_gradients_from_file(model)
+    # Send gradients to Raspberry Pi and receive processed gradients
+    print("Sending gradients to Raspberry Pi...")
+    processed_gradients = send_to_raspberry_pi(input_gradient)
+    print("Processed Gradients Received:", [pg.shape for pg in processed_gradients])
 
     # Run combined gradient matching
     print("Starting Combined Gradient Matching...")
     dummy_data, dummy_label = combined_gradient_matching(
         model=model,
-        origin_grad=origin_grad, 
+        origin_grad=processed_gradients, 
         use_tv=True
     )
 
     # Save and visualize reconstructed image
     plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
     print("Reconstructed image saved successfully.")
+
 
 # Run the test
 if __name__ == "__main__":
