@@ -45,7 +45,7 @@ def plot(tensor, title, save_path=None):
 
 
 # **Client Logic Embedded Here**: Send gradients to Raspberry Pi and receive processed gradients
-def send_to_raspberry_pi(gradients, server_ip="RASPBERRY_PI_IP", port=12345):
+def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
     """
     Communicate with the Raspberry Pi server to send and receive gradients.
     """
