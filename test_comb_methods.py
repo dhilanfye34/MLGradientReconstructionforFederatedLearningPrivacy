@@ -9,6 +9,7 @@ from comb_methods import combined_gradient_matching
 from inversefed import utils, consts
 from PIL import Image
 from torchvision import transforms
+import numpy as np
 
 # Step 1: Define TrainingStrategy class
 class TrainingStrategy:
@@ -43,7 +44,7 @@ def plot(tensor, title, save_path=None):
     plt.show()
 
 
-# Send gradients to Raspberry Pi and get processed gradients
+# **Client Logic Embedded Here**: Send gradients to Raspberry Pi and receive processed gradients
 def send_to_raspberry_pi(gradients, server_ip="RASPBERRY_PI_IP", port=12345):
     """
     Communicate with the Raspberry Pi server to send and receive gradients.
