@@ -47,24 +47,40 @@ def plot(tensor, title, save_path=None):
 # **Client Logic Embedded Here**: Send gradients to Raspberry Pi and receive processed gradients
 def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
     """
-    Communicate with the Raspberry Pi server to send and receive gradients.
+    Send gradients to the Raspberry Pi server and receive processed gradients.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
         client_socket.connect((server_ip, port))
-        serialized_gradients = pickle.dumps(gradients)  # Serialize gradients
-        client_socket.sendall(serialized_gradients)  # Send gradients
+        
+        # Serialize gradients
+        serialized_gradients = pickle.dumps(gradients)
+        data_size = len(serialized_gradients)
 
-        # Receive processed gradients
+        # Send data size first
+        client_socket.sendall(data_size.to_bytes(8, "big"))
+
+        # Send in chunks
+        chunk_size = 4096
+        for i in range(0, data_size, chunk_size):
+            client_socket.sendall(serialized_gradients[i:i + chunk_size])
+
+        # Receive processed gradients size first
+        size_data = client_socket.recv(8)
+        if not size_data:
+            raise ConnectionError("Failed to receive size of processed gradients.")
+
+        processed_size = int.from_bytes(size_data, "big")
+        
+        # Receive processed gradients in chunks
         data = b""
-        while True:
-            chunk = client_socket.recv(4096)
+        while len(data) < processed_size:
+            chunk = client_socket.recv(min(chunk_size, processed_size - len(data)))
             if not chunk:
-                break
+                raise ConnectionError("Connection lost while receiving processed gradients.")
             data += chunk
 
-    processed_gradients = pickle.loads(data)  # Deserialize received gradients
+    processed_gradients = pickle.loads(data)
     return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
-
 
 # Step 4: Test Combined Gradient Matching
 def test_combined_method():
