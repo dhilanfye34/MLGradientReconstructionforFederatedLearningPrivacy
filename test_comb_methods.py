@@ -46,38 +46,36 @@ def plot(tensor, title, save_path=None):
 
 # **Client Logic Embedded Here**: Send gradients to Raspberry Pi and receive processed gradients
 def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
-    """
-    Send gradients to the Raspberry Pi server and receive processed gradients.
-    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
         client_socket.connect((server_ip, port))
-        
+
         # Serialize gradients
         serialized_gradients = pickle.dumps(gradients)
         data_size = len(serialized_gradients)
-
-        # Send data size first
-        client_socket.sendall(data_size.to_bytes(8, "big"))
+        client_socket.sendall(data_size.to_bytes(8, "big"))  # Send size first
 
         # Send in chunks
         chunk_size = 4096
+        bytes_sent = 0
         for i in range(0, data_size, chunk_size):
             client_socket.sendall(serialized_gradients[i:i + chunk_size])
+            bytes_sent += min(chunk_size, data_size - bytes_sent)
+            print(f"Sent {bytes_sent}/{data_size} bytes...")
 
-        # Receive processed gradients size first
+        print("Finished sending gradients. Waiting for response...")
+
+        # Receive processed gradient size first
         size_data = client_socket.recv(8)
-        if not size_data:
-            raise ConnectionError("Failed to receive size of processed gradients.")
-
         processed_size = int.from_bytes(size_data, "big")
-        
-        # Receive processed gradients in chunks
+
+        # Receive processed gradients
         data = b""
         while len(data) < processed_size:
             chunk = client_socket.recv(min(chunk_size, processed_size - len(data)))
             if not chunk:
                 raise ConnectionError("Connection lost while receiving processed gradients.")
             data += chunk
+            print(f"Received {len(data)}/{processed_size} bytes...")
 
     processed_gradients = pickle.loads(data)
     return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
