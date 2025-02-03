@@ -7,26 +7,17 @@ PORT = 12345
 BUFFER_SIZE = 4096  # Safe chunk size for data transfer
 
 def compute_gradients_numpy():
-    """
-    Simulate gradient computation with shapes matching the client's model.
-    """
-    expected_shapes = [
-        (64, 3, 7, 7),  # First Conv Layer Weights
-        (64,),           # First Conv Layer Bias
-        (128, 64, 3, 3), # Second Conv Layer Weights
-        (128,)           # Second Conv Layer Bias
-    ]
-    
-    gradients = [np.random.randn(*shape).astype(np.float32) for shape in expected_shapes]
-    
-    print(f"🧮 Generated gradients with expected shapes:")
-    for i, g in enumerate(gradients):
-        print(f"Layer {i}: {g.shape}")
-    
+    """Simulate gradient computation for layers in a neural network using NumPy."""
+    conv1_weights = np.random.randn(64, 3, 7, 7)  
+    conv1_bias = np.random.randn(64)              
+    conv2_weights = np.random.randn(128, 64, 3, 3)  
+    conv2_bias = np.random.randn(128)             
+
+    gradients = [conv1_weights, conv1_bias, conv2_weights, conv2_bias]
     return gradients
 
 def start_server():
-    """Starts the Raspberry Pi server to receive and process gradients."""
+    """Starts the Raspberry Pi server and keeps it running indefinitely."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind((HOST, PORT))
@@ -37,74 +28,60 @@ def start_server():
             conn, addr = server_socket.accept()
             print(f"🔗 Connected to client at {addr}")
 
-            try:
-                # Step 1: Receive data size
-                size_data = conn.recv(8)
-                if not size_data:
-                    print("❌ Error: No data size received.")
-                    continue
-                data_size = int.from_bytes(size_data, "big")
-                print(f"📩 Expecting {data_size} bytes from client...")
+            while True:  # Keep receiving and processing gradients in a loop
+                try:
+                    # Step 1: Receive data size
+                    size_data = conn.recv(8)
+                    if not size_data:
+                        print("❌ Connection lost. Waiting for new client...")
+                        break  # Exit loop, wait for new client
 
-                # Step 2: Receive the full data in chunks
-                data = b""
-                while len(data) < data_size:
-                    chunk = conn.recv(min(BUFFER_SIZE, data_size - len(data)))
-                    if not chunk:
-                        print("⚠️ Error: Connection lost while receiving data.")
+                    data_size = int.from_bytes(size_data, "big")
+                    print(f"📩 Expecting {data_size} bytes from client...")
+
+                    # Step 2: Receive the full data in chunks
+                    data = b""
+                    while len(data) < data_size:
+                        chunk = conn.recv(min(BUFFER_SIZE, data_size - len(data)))
+                        if not chunk:
+                            print("⚠️ Error: Connection lost while receiving data.")
+                            break
+                        data += chunk
+                        print(f"✅ Received {len(data)}/{data_size} bytes...")
+
+                    if len(data) < data_size:
+                        print(f"⚠️ Error: Incomplete data received ({len(data)} bytes instead of {data_size}).")
                         break
-                    data += chunk
-                    print(f"✅ Received {len(data)}/{data_size} bytes...")
 
-                if len(data) < data_size:
-                    print(f"⚠️ Error: Incomplete data received ({len(data)} bytes instead of {data_size}).")
-                    continue
+                    # Step 3: Deserialize gradients
+                    gradients = pickle.loads(data)
+                    print(f"📊 Received {len(gradients)} gradients.")
 
-                # Step 3: Deserialize gradients
-                gradients = pickle.loads(data)
-                print(f"📊 Received {len(gradients)} gradients.")
+                    # Step 4: Process gradients
+                    processed_gradients = compute_gradients_numpy()
 
-                # Log received gradient shapes
-                for i, g in enumerate(gradients):
-                    print(f"Client Gradient {i}: Shape = {g.shape}")
+                    # Step 5: Serialize processed gradients
+                    serialized_response = pickle.dumps(processed_gradients)
+                    response_size = len(serialized_response)
 
-                # Step 4: Process gradients (simulate computation)
-                processed_gradients = compute_gradients_numpy()
+                    # Step 6: Send the size of the processed gradients first
+                    conn.sendall(response_size.to_bytes(8, "big"))
+                    print(f"📤 Sending {response_size} bytes of processed gradients back to client...")
 
-                # Step 5: Validate shapes before sending back
-                for i, (client_grad, processed_grad) in enumerate(zip(gradients, processed_gradients)):
-                    if client_grad.shape != processed_grad.shape:
-                        print(f"⚠️ Mismatch: Client {client_grad.shape} != Processed {processed_grad.shape}")
-                    else:
-                        print(f"✅ Matched: {client_grad.shape}")
+                    # Step 7: Send the processed gradients in chunks
+                    sent_bytes = 0
+                    for i in range(0, response_size, BUFFER_SIZE):
+                        conn.sendall(serialized_response[i:i+BUFFER_SIZE])
+                        sent_bytes += min(BUFFER_SIZE, response_size - sent_bytes)
+                        print(f"✅ Sent {sent_bytes}/{response_size} bytes...")
 
-                # If there's a mismatch, return the client gradients instead
-                processed_gradients = [
-                    client_grad if client_grad.shape != processed_grad.shape else processed_grad
-                    for client_grad, processed_grad in zip(gradients, processed_gradients)
-                ]
+                    print("✅ Processed gradients sent successfully!")
 
-                # Step 6: Serialize and send processed gradients
-                serialized_response = pickle.dumps(processed_gradients)
-                response_size = len(serialized_response)
+                except Exception as e:
+                    print(f"❌ Error: {e}")
+                    break  # Restart the loop if an error occurs
 
-                conn.sendall(response_size.to_bytes(8, "big"))
-                print(f"📤 Sending {response_size} bytes of processed gradients back to client...")
-
-                sent_bytes = 0
-                for i in range(0, response_size, BUFFER_SIZE):
-                    conn.sendall(serialized_response[i:i+BUFFER_SIZE])
-                    sent_bytes += min(BUFFER_SIZE, response_size - sent_bytes)
-                    print(f"✅ Sent {sent_bytes}/{response_size} bytes...")
-
-                print("✅ Processed gradients sent successfully!")
-
-            except Exception as e:
-                print(f"❌ Error: {e}")
-
-            finally:
-                conn.close()
-                print("🔌 Connection closed.\n")
+            print("🔌 Client disconnected. Waiting for new connection...\n")
 
 if __name__ == "__main__":
     start_server()
