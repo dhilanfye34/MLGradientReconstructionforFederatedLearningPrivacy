@@ -46,8 +46,16 @@ def plot(tensor, title, save_path=None):
 
 # **Client Logic Embedded Here**: Send gradients to Raspberry Pi and receive processed gradients
 def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
+    """
+    Send gradients to the Raspberry Pi server and receive processed gradients.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
         client_socket.connect((server_ip, port))
+
+        # Log gradients before sending
+        print("📊 Input Gradients Before Sending:")
+        for i, grad in enumerate(gradients):
+            print(f"Gradient {i}: {grad.shape}")
 
         # Serialize gradients
         serialized_gradients = pickle.dumps(gradients)

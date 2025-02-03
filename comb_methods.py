@@ -23,7 +23,7 @@ def load_image(file_path):
 
 def combined_gradient_matching(model, origin_grad, switch_iteration=50, use_tv=True):
     """
-    Combined gradient matching: switches from DLG to cosine-based reconstruction.
+    Combined gradient matching: switches from DLG (L2) to cosine-based reconstruction.
     """
     results_dir = "results"
     os.makedirs(results_dir, exist_ok=True)
@@ -37,7 +37,7 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=50, use_tv=T
 
     # Optimization loop
     for iteration in range(100):
-        print(f"--- Iteration {iteration} ---")  # Iteration marker
+        print(f"\n--- Iteration {iteration} ---")  # Iteration marker
 
         def closure():
             print(f"Iteration {iteration}: Inside closure function.")
@@ -52,22 +52,25 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=50, use_tv=T
             dummy_gradients = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
             print(f"Iteration {iteration}: Computed dummy gradients.")
 
-            # Debug: Show the first few dummy gradient norms
-            for i, dg in enumerate(dummy_gradients[:3]):
-                print(f"Layer {i}: Norm = {dg.norm().item()}")
+            # Debugging gradient shapes
+            for i, (dg, og) in enumerate(zip(dummy_gradients, origin_grad)):
+                if dg.shape != og.shape:
+                    print(f"⚠️ Gradient Shape Mismatch at Layer {i}: Dummy {dg.shape} vs Origin {og.shape}")
 
-            # Use DLG for the first iterations
+            # Compute gradient difference
             if iteration < switch_iteration:
-                print(f"Iteration {iteration}: Using dummy DLG gradient difference...")
-                grad_diff = sum((dg.detach() - og.detach()).norm() for dg, og in zip(dummy_gradients, origin_grad))
+                # **DLG-style L2 distance**
+                print(f"Iteration {iteration}: Using L2 gradient difference (DLG)...")
+                grad_diff = sum((dg - og).norm() for dg, og in zip(dummy_gradients, origin_grad) if dg.shape == og.shape)
             else:
-                print(f"Iteration {iteration}: Using dummy GradientReconstructor gradient difference...")
-                grad_diff = torch.randn(1, device=origin_grad[0].device).abs().sum()
+                # **Cosine similarity-based gradient matching**
+                print(f"Iteration {iteration}: Using Cosine Similarity-based matching...")
+                grad_diff = sum(1 - F.cosine_similarity(dg.flatten(), og.flatten(), dim=0) for dg, og in zip(dummy_gradients, origin_grad) if dg.shape == og.shape)
 
             # Apply TV regularization if enabled
             if use_tv:
                 tv_loss = TV(dummy_data) * 1e-2
-                grad_diff = grad_diff + tv_loss 
+                grad_diff = grad_diff + tv_loss
                 print(f"Iteration {iteration}: TV Regularization = {tv_loss.item()}")
 
             # Ensure grad_diff requires gradient
@@ -87,10 +90,9 @@ def combined_gradient_matching(model, origin_grad, switch_iteration=50, use_tv=T
             normalized_data = (dummy_data * std + mean).clamp(0, 1)
             save_image(normalized_data.clone().detach(), f"results/reconstructed_iter_{iteration}.png")
 
-    print("Gradient Matching Complete!")
+    print("✅ Gradient Matching Complete!")
     print(f"Final Dummy Data Stats: Mean = {dummy_data.mean().item()}, Std = {dummy_data.std().item()}")
     return dummy_data, dummy_label
-
 
 if __name__ == "__main__":
     # Load model
