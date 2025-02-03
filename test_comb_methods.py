@@ -14,11 +14,25 @@ import numpy as np
 # Step 1: System Setup
 setup = utils.system_startup()
 
-# **Send gradients to Raspberry Pi and receive processed gradients**
+# Load normalization constants for ImageNet
+dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
+ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
+
+# **Helper function to plot images**
+def plot(tensor, title, save_path=None):
+    tensor = tensor.clone().detach()
+    tensor.mul_(ds).add_(dm).clamp_(0, 1)
+    tensor_to_plot = tensor[0].permute(1, 2, 0).cpu()
+    plt.imshow(tensor_to_plot)
+    plt.title(title)
+    if save_path:
+        save_image(tensor, save_path)
+    plt.show()
+
+# **Function to send gradients to Raspberry Pi and receive processed gradients**
 def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
     """
-    Sends gradients to the Raspberry Pi server and receives processed gradients.
-    The connection remains open to allow continuous training.
+    Sends gradients to Raspberry Pi, keeps the connection open for continuous training.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
         client_socket.connect((server_ip, port))
@@ -33,7 +47,7 @@ def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
         data_size = len(serialized_gradients)
         client_socket.sendall(data_size.to_bytes(8, "big"))  # Send size first
 
-        # Send data in chunks
+        # Send in chunks
         chunk_size = 4096
         for i in range(0, data_size, chunk_size):
             client_socket.sendall(serialized_gradients[i:i + chunk_size])
@@ -56,7 +70,7 @@ def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
     print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
     return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
 
-# **Step 2: Training Loop**
+# **Main training function**
 def run_training():
     """
     Automates the training process:
@@ -70,7 +84,7 @@ def run_training():
     model.to(**setup)
     model.eval()
 
-    # Load input image
+    # Load the input image
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -81,6 +95,7 @@ def run_training():
 
     # Target label
     label = torch.tensor([243], device=setup['device'])  # German Shepherd class
+    plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
 
     while True:  # Infinite loop to keep training
         print("🔄 Starting new training cycle...")
@@ -88,13 +103,17 @@ def run_training():
         # Compute initial gradients
         model.zero_grad()
         target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
+        pred = model(ground_truth).softmax(dim=1)
+        print(f"Model Prediction Probabilities: {pred[0][:10]}")
+        print(f"Loss Value: {target_loss.item()}")
+        
         input_gradient = torch.autograd.grad(target_loss, model.parameters())
         input_gradient = [grad.detach().numpy() for grad in input_gradient]
 
         # Send gradients to Raspberry Pi and receive processed gradients
         processed_gradients = send_to_raspberry_pi(input_gradient)
 
-        # Run combined gradient matching
+        # Run 100 iterations of training
         print("🚀 Running 100 iterations of training...")
         dummy_data, dummy_label = combined_gradient_matching(
             model=model,
@@ -103,7 +122,7 @@ def run_training():
         )
 
         # Save and visualize reconstructed image
-        save_image(dummy_data, "results/reconstructed_iter_100.png")
+        plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
         print("✅ Reconstructed image saved successfully. Restarting process...\n")
 
 # **Run the training process**
