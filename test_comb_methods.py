@@ -32,11 +32,11 @@ def plot(tensor, title, save_path=None):
 
 # **Function to send gradients to Raspberry Pi and receive processed gradients**
 def send_to_raspberry_pi(client_socket, gradients):
-    """ Sends gradients to Raspberry Pi and receives updates continuously. """
+    """ Sends gradients to Raspberry Pi and receives updated gradients continuously. """
     serialized_gradients = pickle.dumps(gradients)
     data_size = len(serialized_gradients)
     print(f"📤 Sending {data_size} bytes of gradients...")
-    
+
     # Send data size first
     client_socket.sendall(data_size.to_bytes(8, "big"))
 
@@ -66,8 +66,7 @@ def send_to_raspberry_pi(client_socket, gradients):
     processed_gradients = pickle.loads(data)
     print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
 
-    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]  # ✅ Return properly
-
+    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
 
 # **Main training function**
 def run_training():
@@ -120,10 +119,11 @@ def run_training():
             )
 
             plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
-            print("✅ Reconstructed image saved successfully. Restarting process...\n")
+            print("✅ Reconstructed image saved successfully.")
 
-            # **Restart training after finishing**
-            continue  # ✅ This ensures it immediately goes back to the start
+            # 🔄 **Restart the training cycle after 100 iterations**
+            print("♻️ Restarting training with new gradients...\n")
+            continue  # ✅ This ensures it loops back and recomputes gradients
 
 # **Run the training process**
 if __name__ == "__main__":
