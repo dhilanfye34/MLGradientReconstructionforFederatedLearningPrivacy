@@ -31,44 +31,43 @@ def plot(tensor, title, save_path=None):
     plt.show()
 
 # **Function to send gradients to Raspberry Pi and receive processed gradients**
-def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
+def send_to_raspberry_pi(client_socket, gradients):
     """ Sends gradients to Raspberry Pi and receives updates continuously. """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
-        client_socket.connect((server_ip, port))
-        print("🔗 Connected to Raspberry Pi server.")
+    serialized_gradients = pickle.dumps(gradients)
+    data_size = len(serialized_gradients)
+    print(f"📤 Sending {data_size} bytes of gradients...")
+    
+    # Send data size first
+    client_socket.sendall(data_size.to_bytes(8, "big"))
 
-        while True:  # ✅ Keep sending gradients until process is stopped manually
-            serialized_gradients = pickle.dumps(gradients)
-            data_size = len(serialized_gradients)
-            print(f"📤 Sending {data_size} bytes of gradients...")
-            client_socket.sendall(data_size.to_bytes(8, "big"))
+    # Send data in chunks
+    sent_bytes = 0
+    chunk_size = 4096
+    for i in range(0, data_size, chunk_size):
+        client_socket.sendall(serialized_gradients[i:i+chunk_size])
+        sent_bytes += len(serialized_gradients[i:i+chunk_size])
+        print(f"✅ Sent {sent_bytes}/{data_size} bytes...")
 
-            sent_bytes = 0
-            chunk_size = 4096
-            for i in range(0, data_size, chunk_size):
-                client_socket.sendall(serialized_gradients[i:i+chunk_size])
-                sent_bytes += len(serialized_gradients[i:i+chunk_size])
-                print(f"✅ Sent {sent_bytes}/{data_size} bytes...")
+    print("✅ Finished sending gradients. Waiting for processed gradients...")
 
-            print("✅ Finished sending gradients. Waiting for processed gradients...")
+    # Receive processed gradient size
+    size_data = client_socket.recv(8)
+    processed_size = int.from_bytes(size_data, "big")
 
-            # Receive processed gradient size
-            size_data = client_socket.recv(8)
-            processed_size = int.from_bytes(size_data, "big")
+    # Receive processed gradients
+    data = b""
+    while len(data) < processed_size:
+        chunk = client_socket.recv(min(4096, processed_size - len(data)))
+        if not chunk:
+            print("⚠️ Connection lost while receiving. Retrying...")
+            return None
+        data += chunk
 
-            # Receive processed gradients
-            data = b""
-            while len(data) < processed_size:
-                chunk = client_socket.recv(min(4096, processed_size - len(data)))
-                if not chunk:
-                    print("⚠️ Connection lost while receiving. Retrying...")
-                    break
-                data += chunk
+    processed_gradients = pickle.loads(data)
+    print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
 
-            processed_gradients = pickle.loads(data)
-            print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
+    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]  # ✅ Return properly
 
-            return [torch.tensor(g, requires_grad=False) for g in processed_gradients]  # ✅ Return properly
 
 # **Main training function**
 def run_training():
@@ -87,36 +86,44 @@ def run_training():
     label = torch.tensor([243], device=setup['device'])
     plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
 
-    while True:  # ✅ Keep looping indefinitely
-        print("🔄 Starting new training cycle...")
+    # **Persistent connection to Raspberry Pi**
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+        client_socket.connect(("192.168.4.171", 12345))
+        print("🔗 Connected to Raspberry Pi server.")
 
-        model.zero_grad()
-        target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
-        pred = model(ground_truth).softmax(dim=1)
+        while True:  # ✅ Keep looping indefinitely
+            print("🔄 Starting new training cycle...")
 
-        print(f"Model Prediction Probabilities: {pred[0][:10]}")
-        print(f"Loss Value: {target_loss.item()}")
+            model.zero_grad()
+            target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
+            pred = model(ground_truth).softmax(dim=1)
 
-        input_gradient = torch.autograd.grad(target_loss, model.parameters())
-        input_gradient = [grad.detach().numpy() for grad in input_gradient]
+            print(f"Model Prediction Probabilities: {pred[0][:10]}")
+            print(f"Loss Value: {target_loss.item()}")
 
-        # ✅ Keep sending gradients until 100 iterations are done
-        processed_gradients = send_to_raspberry_pi(input_gradient)
+            input_gradient = torch.autograd.grad(target_loss, model.parameters())
+            input_gradient = [grad.detach().numpy() for grad in input_gradient]
 
-        print(f"✅ Processed Gradients Received: {[pg.shape for pg in processed_gradients]}")
+            # ✅ Keep sending gradients
+            processed_gradients = send_to_raspberry_pi(client_socket, input_gradient)
+            if processed_gradients is None:
+                print("⚠️ Connection lost, restarting...")
+                break  # If connection is lost, restart
 
-        # 🚀 **Start the 100 iterations of training**
-        dummy_data, dummy_label = combined_gradient_matching(
-            model=model,
-            origin_grad=processed_gradients, 
-            use_tv=True
-        )
+            print(f"✅ Processed Gradients Received: {[pg.shape for pg in processed_gradients]}")
 
-        plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
-        print("✅ Reconstructed image saved successfully. Restarting process...\n")
+            # 🚀 **Start the 100 iterations of training**
+            dummy_data, dummy_label = combined_gradient_matching(
+                model=model,
+                origin_grad=processed_gradients, 
+                use_tv=True
+            )
 
-        # **Restart training after finishing**
-        continue  # ✅ This ensures it immediately goes back to the start
+            plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
+            print("✅ Reconstructed image saved successfully. Restarting process...\n")
+
+            # **Restart training after finishing**
+            continue  # ✅ This ensures it immediately goes back to the start
 
 # **Run the training process**
 if __name__ == "__main__":
