@@ -79,7 +79,6 @@ def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
 
     raise ConnectionError("❌ Failed to connect to Raspberry Pi after multiple attempts.")
 
-
 # **Main training function**
 def run_training():
     model = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
