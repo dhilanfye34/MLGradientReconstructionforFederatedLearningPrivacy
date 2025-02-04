@@ -7,11 +7,11 @@ PORT = 12345
 BUFFER_SIZE = 4096
 
 def compute_gradients_numpy(received_gradients):
-    """Simulates ML updates by modifying received gradients."""
+    """ Simulates ML updates by modifying received gradients. """
     processed_gradients = []
     for grad in received_gradients:
         grad_np = np.array(grad, dtype=np.float32)
-        grad_np *= 0.9  # Simulate gradient update
+        grad_np *= 0.9  # Simulates gradient update
         processed_gradients.append(grad_np)
     return processed_gradients
 
@@ -28,55 +28,31 @@ def start_server():
             print(f"🔗 Connected to client at {addr}")
 
             try:
-                while True:
-                    # Step 1: Receive data size
+                while True:  # ✅ Keep processing new gradients without disconnecting
                     size_data = conn.recv(8)
                     if not size_data:
                         print("❌ Connection lost. Waiting for new client...")
                         break  
 
                     data_size = int.from_bytes(size_data, "big")
-                    print(f"📩 Expecting {data_size} bytes from client...")
-
-                    # Step 2: Receive the full data in chunks
                     data = b""
-                    received_bytes = 0
                     while len(data) < data_size:
                         chunk = conn.recv(min(BUFFER_SIZE, data_size - len(data)))
                         if not chunk:
-                            print("⚠️ Connection lost while receiving data. Retrying...")
                             break
                         data += chunk
-                        received_bytes += len(chunk)
-                        print(f"✅ Received {received_bytes}/{data_size} bytes...")
 
-                    if len(data) < data_size:
-                        print(f"⚠️ Error: Incomplete data received ({len(data)} bytes instead of {data_size}).")
-                        continue  # ✅ Instead of disconnecting, wait for the next batch
-
-                    # Step 3: Deserialize gradients
                     gradients = pickle.loads(data)
-                    print(f"📊 Received {len(gradients)} gradients.")
-
-                    # Step 4: Process gradients
                     processed_gradients = compute_gradients_numpy(gradients)
 
-                    # Step 5: Serialize processed gradients
                     serialized_response = pickle.dumps(processed_gradients)
                     response_size = len(serialized_response)
 
-                    # Step 6: Send the size of the processed gradients first
                     conn.sendall(response_size.to_bytes(8, "big"))
-
-                    # Step 7: Send processed gradients in chunks
-                    sent_bytes = 0
-                    for i in range(0, response_size, BUFFER_SIZE):
-                        conn.sendall(serialized_response[i:i+BUFFER_SIZE])
-                        sent_bytes += min(BUFFER_SIZE, response_size - sent_bytes)
-                        print(f"✅ Sent {sent_bytes}/{response_size} bytes...")
+                    conn.sendall(serialized_response)
 
                     print("✅ Processed gradients sent successfully!")
-                    print("🔄 Ready for next batch of gradients...")  # ✅ Keeps connection open
+                    print("🔄 Ready for next batch of gradients...")  # ✅ Keep looping
 
             except Exception as e:
                 print(f"❌ Error: {e}")
