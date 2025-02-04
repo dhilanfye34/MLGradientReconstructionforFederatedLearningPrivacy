@@ -1,20 +1,31 @@
 import socket
 import pickle
 import numpy as np
+import time
 
 HOST = "0.0.0.0"  # Listen on all interfaces
 PORT = 12345
 BUFFER_SIZE = 4096  # Safe chunk size for data transfer
 
-def compute_gradients_numpy():
-    """Simulate gradient computation for layers in a neural network using NumPy."""
-    conv1_weights = np.random.randn(64, 3, 7, 7)  
-    conv1_bias = np.random.randn(64)              
-    conv2_weights = np.random.randn(128, 64, 3, 3)  
-    conv2_bias = np.random.randn(128)             
+import numpy as np
 
-    gradients = [conv1_weights, conv1_bias, conv2_weights, conv2_bias]
-    return gradients
+def compute_gradients_numpy(received_gradients):
+    """
+    Processes incoming gradients using NumPy and returns updated gradients.
+    - Ensures shapes remain the same.
+    - Simulates an ML update by applying a minor scaling factor.
+    """
+    processed_gradients = []
+    
+    for grad in received_gradients:
+        grad_np = np.array(grad, dtype=np.float32)  # Ensure float32 for efficiency
+
+        # Simulate an update (like a weight update in backpropagation)
+        grad_np *= 0.9  # Scale down by 10% to simulate gradient descent
+
+        processed_gradients.append(grad_np)
+
+    return processed_gradients
 
 def start_server():
     """Starts the Raspberry Pi server and keeps it running indefinitely."""
@@ -27,14 +38,15 @@ def start_server():
         while True:
             conn, addr = server_socket.accept()
             print(f"🔗 Connected to client at {addr}")
+            conn.settimeout(5)  # ✅ Set a timeout of 5 seconds for receiving data
 
-            while True:  # Keep receiving and processing gradients in a loop
-                try:
+            try:
+                while True:
                     # Step 1: Receive data size
                     size_data = conn.recv(8)
                     if not size_data:
                         print("❌ Connection lost. Waiting for new client...")
-                        break  # Exit loop, wait for new client
+                        break  
 
                     data_size = int.from_bytes(size_data, "big")
                     print(f"📩 Expecting {data_size} bytes from client...")
@@ -44,7 +56,7 @@ def start_server():
                     while len(data) < data_size:
                         chunk = conn.recv(min(BUFFER_SIZE, data_size - len(data)))
                         if not chunk:
-                            print("⚠️ Error: Connection lost while receiving data.")
+                            print("⚠️ Connection lost while receiving data. Retrying...")
                             break
                         data += chunk
                         print(f"✅ Received {len(data)}/{data_size} bytes...")
@@ -58,7 +70,7 @@ def start_server():
                     print(f"📊 Received {len(gradients)} gradients.")
 
                     # Step 4: Process gradients
-                    processed_gradients = compute_gradients_numpy()
+                    processed_gradients = compute_gradients_numpy(gradients)
 
                     # Step 5: Serialize processed gradients
                     serialized_response = pickle.dumps(processed_gradients)
@@ -66,9 +78,8 @@ def start_server():
 
                     # Step 6: Send the size of the processed gradients first
                     conn.sendall(response_size.to_bytes(8, "big"))
-                    print(f"📤 Sending {response_size} bytes of processed gradients back to client...")
 
-                    # Step 7: Send the processed gradients in chunks
+                    # Step 7: Send processed gradients in chunks
                     sent_bytes = 0
                     for i in range(0, response_size, BUFFER_SIZE):
                         conn.sendall(serialized_response[i:i+BUFFER_SIZE])
@@ -77,9 +88,12 @@ def start_server():
 
                     print("✅ Processed gradients sent successfully!")
 
-                except Exception as e:
-                    print(f"❌ Error: {e}")
-                    break  # Restart the loop if an error occurs
+            except socket.timeout:
+                print("⚠️ Timeout: No data received for 5 seconds. Reconnecting...")
+
+            except Exception as e:
+                print(f"❌ Error: {e}")
+                break  
 
             print("🔌 Client disconnected. Waiting for new connection...\n")
 
