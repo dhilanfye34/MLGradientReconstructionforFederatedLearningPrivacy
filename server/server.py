@@ -7,11 +7,11 @@ PORT = 12345
 BUFFER_SIZE = 4096
 
 def compute_gradients_numpy(received_gradients):
-    """ Simulates ML updates by modifying received gradients. """
+    """Simulates ML updates by modifying received gradients."""
     processed_gradients = []
     for grad in received_gradients:
         grad_np = np.array(grad, dtype=np.float32)
-        grad_np *= 0.9  # Simulates gradient update
+        grad_np *= 0.9  # Simulate gradient update
         processed_gradients.append(grad_np)
     return processed_gradients
 
@@ -48,11 +48,11 @@ def start_server():
                             break
                         data += chunk
                         received_bytes += len(chunk)
-                        print(f"✅ Received {received_bytes}/{data_size} bytes...")  # Debugging
+                        print(f"✅ Received {received_bytes}/{data_size} bytes...")
 
                     if len(data) < data_size:
                         print(f"⚠️ Error: Incomplete data received ({len(data)} bytes instead of {data_size}).")
-                        break
+                        continue  # ✅ Instead of disconnecting, wait for the next batch
 
                     # Step 3: Deserialize gradients
                     gradients = pickle.loads(data)
@@ -76,7 +76,7 @@ def start_server():
                         print(f"✅ Sent {sent_bytes}/{response_size} bytes...")
 
                     print("✅ Processed gradients sent successfully!")
-                    print("🔄 Ready for next batch of gradients...")  # ✅ Keep the connection open for next batch
+                    print("🔄 Ready for next batch of gradients...")  # ✅ Keeps connection open
 
             except Exception as e:
                 print(f"❌ Error: {e}")
