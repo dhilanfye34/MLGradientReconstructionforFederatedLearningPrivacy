@@ -85,45 +85,53 @@ def run_training():
     label = torch.tensor([243], device=setup['device'])
     plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
 
-    # **Persistent connection to Raspberry Pi**
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
-        client_socket.connect(("192.168.4.171", 12345))
-        print("🔗 Connected to Raspberry Pi server.")
+    while True:  # ✅ Loop indefinitely
+        try:
+            # **Persistent connection to Raspberry Pi**
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                client_socket.connect(("192.168.4.171", 12345))
+                print("🔗 Connected to Raspberry Pi server.")
 
-        while True:  # ✅ Keep looping indefinitely
-            print("🔄 Starting new training cycle...")
+                while True:  # ✅ Inner loop for continuous gradient updates
+                    print("🔄 Starting new training cycle...")
 
-            model.zero_grad()
-            target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
-            pred = model(ground_truth).softmax(dim=1)
+                    model.zero_grad()
+                    target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
+                    pred = model(ground_truth).softmax(dim=1)
 
-            print(f"Model Prediction Probabilities: {pred[0][:10]}")
-            print(f"Loss Value: {target_loss.item()}")
+                    print(f"Model Prediction Probabilities: {pred[0][:10]}")
+                    print(f"Loss Value: {target_loss.item()}")
 
-            input_gradient = torch.autograd.grad(target_loss, model.parameters())
-            input_gradient = [grad.detach().numpy() for grad in input_gradient]
+                    input_gradient = torch.autograd.grad(target_loss, model.parameters())
+                    input_gradient = [grad.detach().numpy() for grad in input_gradient]
 
-            # ✅ Keep sending gradients
-            processed_gradients = send_to_raspberry_pi(client_socket, input_gradient)
-            if processed_gradients is None:
-                print("⚠️ Connection lost, restarting...")
-                break  # If connection is lost, restart
+                    # ✅ Keep sending gradients
+                    processed_gradients = send_to_raspberry_pi(client_socket, input_gradient)
+                    if processed_gradients is None:
+                        print("⚠️ Connection lost, restarting...")
+                        break  # If connection is lost, restart
 
-            print(f"✅ Processed Gradients Received: {[pg.shape for pg in processed_gradients]}")
+                    print(f"✅ Processed Gradients Received: {[pg.shape for pg in processed_gradients]}")
 
-            # 🚀 **Start the 100 iterations of training**
-            dummy_data, dummy_label = combined_gradient_matching(
-                model=model,
-                origin_grad=processed_gradients, 
-                use_tv=True
-            )
+                    # 🚀 **Start the 100 iterations of training**
+                    dummy_data, dummy_label = combined_gradient_matching(
+                        model=model,
+                        origin_grad=processed_gradients, 
+                        use_tv=True
+                    )
 
-            plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
-            print("✅ Reconstructed image saved successfully.")
+                    plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
+                    print("✅ Reconstructed image saved successfully.")
 
-            # 🔄 **Restart the training cycle after 100 iterations**
-            print("♻️ Restarting training with new gradients...\n")
-            continue  # ✅ This ensures it loops back and recomputes gradients
+                    # 🔄 **After 100 iterations, restart gradient calculation**
+                    print("♻️ Restarting training with new gradients...\n")
+                    
+                    # **Explicitly restart training cycle**
+                    continue  # Ensures the loop continues to send fresh gradients
+
+        except Exception as e:
+            print(f"❌ Error: {e}. Restarting...")
+            time.sleep(5)  # ✅ Prevent rapid restart spam
 
 # **Run the training process**
 if __name__ == "__main__":
