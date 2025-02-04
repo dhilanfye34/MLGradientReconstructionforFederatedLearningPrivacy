@@ -32,6 +32,7 @@ def plot(tensor, title, save_path=None):
 
 # **Function to send gradients to Raspberry Pi and receive processed gradients**
 def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
+    """ Keeps sending gradients in an infinite loop without reconnecting. """
     MAX_RETRIES = 3
     retries = 0
 
@@ -39,38 +40,59 @@ def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
                 client_socket.connect((server_ip, port))
+                print("🔗 Connected to Raspberry Pi server.")
 
-                while True:  # ✅ Keep sending gradients without reconnecting
-                    # Serialize gradients
-                    serialized_gradients = pickle.dumps(gradients)
-                    data_size = len(serialized_gradients)
-                    client_socket.sendall(data_size.to_bytes(8, "big"))  
+                while True:  # ✅ Keep sending gradients continuously
+                    # Compute new gradients
+                    model.zero_grad()
+                    target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
+                    input_gradient = torch.autograd.grad(target_loss, model.parameters())
+                    input_gradient = [grad.detach().numpy() for grad in input_gradient]
 
-                    # Send in chunks
-                    sent_bytes = 0
-                    for i in range(0, data_size, 4096):
-                        client_socket.sendall(serialized_gradients[i:i+4096])
-                        sent_bytes += min(4096, data_size - sent_bytes)
-                        print(f"📤 Sent {sent_bytes}/{data_size} bytes...")
-
-                    print("✅ Finished sending gradients. Waiting for response...")
+                    # Serialize and send gradients
+                    serialized_gradients = pickle.dumps(input_gradient)
+                    client_socket.sendall(len(serialized_gradients).to_bytes(8, "big"))
+                    client_socket.sendall(serialized_gradients)
+                    print("📤 Sent gradients. Waiting for processed gradients...")
 
                     # Receive processed gradient size
                     size_data = client_socket.recv(8)
                     processed_size = int.from_bytes(size_data, "big")
 
-                    # Ensure full response is received
+                    # Receive processed gradients
                     data = b""
                     while len(data) < processed_size:
                         chunk = client_socket.recv(min(4096, processed_size - len(data)))
                         if not chunk:
-                            raise ConnectionError("Connection lost while receiving processed gradients.")
+                            print("⚠️ Connection lost while receiving. Retrying...")
+                            break
                         data += chunk
 
-                    processed_gradients = pickle.loads(data)
-                    print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
+                    if len(data) < processed_size:
+                        print("⚠️ Incomplete data received. Retrying next batch...")
+                        continue
 
-                    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
+                    processed_gradients = pickle.loads(data)
+                    print(f"✅ Received processed gradients. Running next cycle...")
+
+                    # **Fix Shape Mismatches**
+                    for i in range(len(input_gradient)):
+                        if processed_gradients[i].shape != input_gradient[i].shape:
+                            print(f"⚠️ Shape Mismatch at Layer {i}: Reshaping...")
+                            processed_gradients[i] = np.reshape(processed_gradients[i], input_gradient[i].shape)
+
+                    print(f"✅ Processed Gradients Received: {[pg.shape for pg in processed_gradients]}")
+
+                    # Run 100 iterations of training
+                    print("🚀 Running 100 iterations of training...")
+                    dummy_data, dummy_label = combined_gradient_matching(
+                        model=model,
+                        origin_grad=processed_gradients, 
+                        use_tv=True
+                    )
+
+                    plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
+                    print("✅ Reconstructed image saved successfully. Restarting process...\n")
 
         except (socket.error, ConnectionError) as e:
             retries += 1
@@ -81,6 +103,8 @@ def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
 
 # **Main training function**
 def run_training():
+    """ Starts training and keeps it running indefinitely. """
+    global model, ground_truth, label  # Ensure these are accessible in send_to_raspberry_pi
     model = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
     model.to(**setup)
     model.eval()
@@ -96,39 +120,8 @@ def run_training():
     label = torch.tensor([243], device=setup['device'])
     plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
 
-    while True:
-        print("🔄 Starting new training cycle...")
-
-        model.zero_grad()
-        target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
-        pred = model(ground_truth).softmax(dim=1)
-        print(f"Model Prediction Probabilities: {pred[0][:10]}")
-        print(f"Loss Value: {target_loss.item()}")
-
-        input_gradient = torch.autograd.grad(target_loss, model.parameters())
-        input_gradient = [grad.detach().numpy() for grad in input_gradient]
-
-        # Send gradients to Raspberry Pi and receive processed gradients
-        processed_gradients = send_to_raspberry_pi(input_gradient)
-
-        # **Fix Shape Mismatches**
-        for i in range(len(input_gradient)):
-            if processed_gradients[i].shape != input_gradient[i].shape:
-                print(f"⚠️ Shape Mismatch at Layer {i}: Reshaping...")
-                processed_gradients[i] = np.reshape(processed_gradients[i], input_gradient[i].shape)
-
-        print(f"✅ Processed Gradients Received: {[pg.shape for pg in processed_gradients]}")
-
-        # Run 100 iterations of training
-        print("🚀 Running 100 iterations of training...")
-        dummy_data, dummy_label = combined_gradient_matching(
-            model=model,
-            origin_grad=processed_gradients, 
-            use_tv=True
-        )
-
-        plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
-        print("✅ Reconstructed image saved successfully. Restarting process...\n")
+    # Start continuous training loop
+    send_to_raspberry_pi([])  # Pass empty list initially, function handles updates
 
 # **Run the training process**
 if __name__ == "__main__":
