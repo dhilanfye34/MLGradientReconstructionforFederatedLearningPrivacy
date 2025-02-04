@@ -32,7 +32,7 @@ def plot(tensor, title, save_path=None):
 
 # **Function to send gradients to Raspberry Pi and receive processed gradients**
 def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
-    MAX_RETRIES = 3  # ✅ Allow up to 3 retries in case of failure
+    MAX_RETRIES = 3
     retries = 0
 
     while retries < MAX_RETRIES:
@@ -40,42 +40,45 @@ def send_to_raspberry_pi(gradients, server_ip="192.168.4.171", port=12345):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
                 client_socket.connect((server_ip, port))
 
-                # Serialize gradients
-                serialized_gradients = pickle.dumps(gradients)
-                data_size = len(serialized_gradients)
-                client_socket.sendall(data_size.to_bytes(8, "big"))  
+                while True:  # ✅ Keep sending gradients without reconnecting
+                    # Serialize gradients
+                    serialized_gradients = pickle.dumps(gradients)
+                    data_size = len(serialized_gradients)
+                    client_socket.sendall(data_size.to_bytes(8, "big"))  
 
-                # Send in chunks
-                sent_bytes = 0
-                for i in range(0, data_size, 4096):
-                    client_socket.sendall(serialized_gradients[i:i+4096])
-                    sent_bytes += min(4096, data_size - sent_bytes)
-                    print(f"📤 Sent {sent_bytes}/{data_size} bytes...")
+                    # Send in chunks
+                    sent_bytes = 0
+                    for i in range(0, data_size, 4096):
+                        client_socket.sendall(serialized_gradients[i:i+4096])
+                        sent_bytes += min(4096, data_size - sent_bytes)
+                        print(f"📤 Sent {sent_bytes}/{data_size} bytes...")
 
-                print("✅ Finished sending gradients. Waiting for response...")
+                    print("✅ Finished sending gradients. Waiting for response...")
 
-                # Receive processed gradient size
-                size_data = client_socket.recv(8)
-                processed_size = int.from_bytes(size_data, "big")
+                    # Receive processed gradient size
+                    size_data = client_socket.recv(8)
+                    processed_size = int.from_bytes(size_data, "big")
 
-                # Ensure full response is received
-                data = b""
-                while len(data) < processed_size:
-                    chunk = client_socket.recv(min(4096, processed_size - len(data)))
-                    if not chunk:
-                        raise ConnectionError("Connection lost while receiving processed gradients.")
-                    data += chunk
+                    # Ensure full response is received
+                    data = b""
+                    while len(data) < processed_size:
+                        chunk = client_socket.recv(min(4096, processed_size - len(data)))
+                        if not chunk:
+                            raise ConnectionError("Connection lost while receiving processed gradients.")
+                        data += chunk
 
-            processed_gradients = pickle.loads(data)
-            print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
-            return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
+                    processed_gradients = pickle.loads(data)
+                    print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
+
+                    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
 
         except (socket.error, ConnectionError) as e:
             retries += 1
             print(f"⚠️ Connection failed ({e}). Retrying {retries}/{MAX_RETRIES}...")
-            time.sleep(3)  # ✅ Wait before retrying
+            time.sleep(3)
 
     raise ConnectionError("❌ Failed to connect to Raspberry Pi after multiple attempts.")
+
 
 # **Main training function**
 def run_training():

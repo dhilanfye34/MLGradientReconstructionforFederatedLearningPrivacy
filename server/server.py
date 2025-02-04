@@ -7,8 +7,6 @@ HOST = "0.0.0.0"  # Listen on all interfaces
 PORT = 12345
 BUFFER_SIZE = 4096  # Safe chunk size for data transfer
 
-import numpy as np
-
 def compute_gradients_numpy(received_gradients):
     """
     Processes incoming gradients using NumPy and returns updated gradients.
@@ -19,16 +17,13 @@ def compute_gradients_numpy(received_gradients):
     
     for grad in received_gradients:
         grad_np = np.array(grad, dtype=np.float32)  # Ensure float32 for efficiency
-
-        # Simulate an update (like a weight update in backpropagation)
-        grad_np *= 0.9  # Scale down by 10% to simulate gradient descent
-
+        grad_np *= 0.9  # 🔥 Simulates a gradient update
         processed_gradients.append(grad_np)
 
     return processed_gradients
 
 def start_server():
-    """Starts the Raspberry Pi server and keeps it running indefinitely."""
+    """Starts the Raspberry Pi server and keeps it running indefinitely without closing connections."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind((HOST, PORT))
@@ -38,10 +33,10 @@ def start_server():
         while True:
             conn, addr = server_socket.accept()
             print(f"🔗 Connected to client at {addr}")
-            conn.settimeout(5)  # ✅ Set a timeout of 5 seconds for receiving data
+            conn.settimeout(10)  # ✅ Set a timeout to avoid blocking indefinitely
 
             try:
-                while True:
+                while True:  # ✅ Keep receiving gradients without closing connection
                     # Step 1: Receive data size
                     size_data = conn.recv(8)
                     if not size_data:
@@ -87,15 +82,14 @@ def start_server():
                         print(f"✅ Sent {sent_bytes}/{response_size} bytes...")
 
                     print("✅ Processed gradients sent successfully!")
+                    print("🔄 Ready for next batch of gradients...")  # ✅ Keep the connection open for next batch
 
             except socket.timeout:
-                print("⚠️ Timeout: No data received for 5 seconds. Reconnecting...")
+                print("⚠️ Timeout: No data received for 10 seconds. Keeping connection open...")
 
             except Exception as e:
                 print(f"❌ Error: {e}")
                 break  
-
-            print("🔌 Client disconnected. Waiting for new connection...\n")
 
 if __name__ == "__main__":
     start_server()
