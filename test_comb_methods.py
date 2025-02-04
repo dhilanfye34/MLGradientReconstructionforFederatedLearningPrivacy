@@ -54,8 +54,18 @@ def send_to_raspberry_pi(ground_truth, label, model, server_ip="192.168.4.171", 
                     data_size = len(serialized_gradients)
 
                     print(f"📤 Sending {data_size} bytes of gradients...")
+
+                    # Send data size first
                     client_socket.sendall(data_size.to_bytes(8, "big"))
-                    client_socket.sendall(serialized_gradients)
+
+                    # ✅ Send in explicit chunks & log each one
+                    sent_bytes = 0
+                    chunk_size = 4096
+                    for i in range(0, data_size, chunk_size):
+                        chunk = serialized_gradients[i:i+chunk_size]
+                        client_socket.sendall(chunk)
+                        sent_bytes += len(chunk)
+                        print(f"✅ Sent {sent_bytes}/{data_size} bytes...")  # Debugging
 
                     print("✅ Finished sending gradients. Waiting for processed gradients...")
 
@@ -67,7 +77,7 @@ def send_to_raspberry_pi(ground_truth, label, model, server_ip="192.168.4.171", 
 
                     processed_size = int.from_bytes(size_data, "big")
 
-                    # Receive processed gradients
+                    # Ensure full response is received
                     data = b""
                     while len(data) < processed_size:
                         chunk = client_socket.recv(min(4096, processed_size - len(data)))
@@ -75,6 +85,7 @@ def send_to_raspberry_pi(ground_truth, label, model, server_ip="192.168.4.171", 
                             print("⚠️ Connection lost while receiving. Retrying...")
                             break
                         data += chunk
+                        print(f"✅ Received {len(data)}/{processed_size} bytes...")  # Debugging
 
                     if len(data) < processed_size:
                         print("⚠️ Incomplete data received. Retrying next batch...")
@@ -83,21 +94,7 @@ def send_to_raspberry_pi(ground_truth, label, model, server_ip="192.168.4.171", 
                     processed_gradients = pickle.loads(data)
                     print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
 
-                    # **Fix Shape Mismatches**
-                    for i in range(len(input_gradient)):
-                        if processed_gradients[i].shape != input_gradient[i].shape:
-                            print(f"⚠️ Shape Mismatch at Layer {i}: Reshaping...")
-                            processed_gradients[i] = np.reshape(processed_gradients[i], input_gradient[i].shape)
-
-                    print("🚀 Running 100 iterations of training...")
-                    dummy_data, dummy_label = combined_gradient_matching(
-                        model=model,
-                        origin_grad=processed_gradients, 
-                        use_tv=True
-                    )
-
-                    plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
-                    print("✅ Reconstructed image saved successfully. Restarting process...\n")
+                    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
 
         except (socket.error, ConnectionError) as e:
             retries += 1
