@@ -31,11 +31,12 @@ def plot(tensor, title, save_path=None):
     plt.show()
 
 # **Function to send gradients to Raspberry Pi and receive processed gradients**
-def send_to_raspberry_pi(client_socket, gradients):
-    """ Sends gradients to Raspberry Pi and receives updated gradients continuously. """
-    serialized_gradients = pickle.dumps(gradients)
-    data_size = len(serialized_gradients)
-    print(f"📤 Sending {data_size} bytes of gradients...")
+def send_to_raspberry_pi(client_socket, image_tensor, label):
+    """ Sends image tensor and label to Raspberry Pi for local training. """
+    # Serialize image tensor & label
+    data = pickle.dumps((image_tensor.numpy(), label.numpy()))
+    data_size = len(data)
+    print(f"📤 Sending {data_size} bytes of image data...")
 
     # Send data size first
     client_socket.sendall(data_size.to_bytes(8, "big"))
@@ -44,32 +45,33 @@ def send_to_raspberry_pi(client_socket, gradients):
     sent_bytes = 0
     chunk_size = 4096
     for i in range(0, data_size, chunk_size):
-        client_socket.sendall(serialized_gradients[i:i+chunk_size])
-        sent_bytes += len(serialized_gradients[i:i+chunk_size])
+        client_socket.sendall(data[i:i+chunk_size])
+        sent_bytes += min(4096, data_size - sent_bytes)
         print(f"✅ Sent {sent_bytes}/{data_size} bytes...")
 
-    print("✅ Finished sending gradients. Waiting for processed gradients...")
+    print("✅ Finished sending image. Waiting for model updates...")
 
-    # Receive processed gradient size
+    # Receive processed model size
     size_data = client_socket.recv(8)
-    processed_size = int.from_bytes(size_data, "big")
+    model_size = int.from_bytes(size_data, "big")
 
-    # Receive processed gradients
-    data = b""
-    while len(data) < processed_size:
-        chunk = client_socket.recv(min(4096, processed_size - len(data)))
+    # Receive the updated model
+    model_data = b""
+    while len(model_data) < model_size:
+        chunk = client_socket.recv(min(4096, model_size - len(model_data)))
         if not chunk:
-            print("⚠️ Connection lost while receiving. Retrying...")
+            print("⚠️ Connection lost while receiving model update.")
             return None
-        data += chunk
+        model_data += chunk
 
-    processed_gradients = pickle.loads(data)
-    print(f"✅ Received processed gradients: {[pg.shape for pg in processed_gradients]}")
+    updated_model_weights = pickle.loads(model_data)
+    print("✅ Received updated model weights.")
 
-    return [torch.tensor(g, requires_grad=False) for g in processed_gradients]
+    return updated_model_weights
 
 # **Main training function**
 def run_training():
+    """ Sends images to Raspberry Pi for local training and updates local model with received weights. """
     model = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
     model.to(**setup)
     model.eval()
@@ -92,42 +94,19 @@ def run_training():
                 client_socket.connect(("192.168.4.171", 12345))
                 print("🔗 Connected to Raspberry Pi server.")
 
-                while True:  # ✅ Inner loop for continuous gradient updates
-                    print("🔄 Starting new training cycle...")
+                while True:  # ✅ Inner loop for continuous updates
+                    print("🔄 Sending image to Raspberry Pi for training...")
 
-                    model.zero_grad()
-                    target_loss = torch.nn.functional.cross_entropy(model(ground_truth), label)
-                    pred = model(ground_truth).softmax(dim=1)
-
-                    print(f"Model Prediction Probabilities: {pred[0][:10]}")
-                    print(f"Loss Value: {target_loss.item()}")
-
-                    input_gradient = torch.autograd.grad(target_loss, model.parameters())
-                    input_gradient = [grad.detach().numpy() for grad in input_gradient]
-
-                    # ✅ Keep sending gradients
-                    processed_gradients = send_to_raspberry_pi(client_socket, input_gradient)
-                    if processed_gradients is None:
+                    updated_model_weights = send_to_raspberry_pi(client_socket, ground_truth, label)
+                    if updated_model_weights is None:
                         print("⚠️ Connection lost, restarting...")
                         break  # If connection is lost, restart
 
-                    print(f"✅ Processed Gradients Received: {[pg.shape for pg in processed_gradients]}")
+                    # ✅ Load the updated model weights
+                    model.load_state_dict(updated_model_weights)
+                    print("✅ Model updated with new weights. Restarting process...\n")
 
-                    # 🚀 **Start the 100 iterations of training**
-                    dummy_data, dummy_label = combined_gradient_matching(
-                        model=model,
-                        origin_grad=processed_gradients, 
-                        use_tv=True
-                    )
-
-                    plot(dummy_data, "Reconstructed (Combined)", "11794_Combined_output.png")
-                    print("✅ Reconstructed image saved successfully.")
-
-                    # 🔄 **After 100 iterations, restart gradient calculation**
-                    print("♻️ Restarting training with new gradients...\n")
-                    
-                    # **Explicitly restart training cycle**
-                    continue  # Ensures the loop continues to send fresh gradients
+                    time.sleep(5)  # ✅ Small delay before sending the next round
 
         except Exception as e:
             print(f"❌ Error: {e}. Restarting...")

@@ -5,15 +5,35 @@ import numpy as np
 HOST = "0.0.0.0"
 PORT = 12345
 BUFFER_SIZE = 4096
+LEARNING_RATE = 0.01  # Step size for updates
 
-def compute_gradients_numpy(received_gradients):
-    """ Simulates ML updates by modifying received gradients. """
-    processed_gradients = []
-    for grad in received_gradients:
-        grad_np = np.array(grad, dtype=np.float32)
-        grad_np *= 0.9  # Simulates gradient update
-        processed_gradients.append(grad_np)
-    return processed_gradients
+# Initialize model parameters (NumPy version of ResNet weights)
+model_weights = {
+    "W1": np.random.randn(64, 3, 7, 7),  # Example weights
+    "b1": np.zeros((64,)),  # Bias
+    "W2": np.random.randn(64, 64, 3, 3),
+    "b2": np.zeros((64,)),
+    "W3": np.random.randn(128, 64, 3, 3),
+    "b3": np.zeros((128,)),
+}
+
+def train_on_edge_device(image, label):
+    """
+    Simulates training by applying simple gradient descent in NumPy.
+    This assumes `image` is a NumPy array of shape (3, 224, 224) and `label` is an int.
+    """
+    global model_weights  # Access model parameters
+
+    # Simulated forward pass: compute gradients
+    gradients = {key: np.random.randn(*model_weights[key].shape) for key in model_weights}
+
+    # Simulated gradient descent update
+    for key in model_weights:
+        model_weights[key] -= LEARNING_RATE * gradients[key]  # W_new = W - η * grad
+
+    print("✅ Local training complete. Returning updated weights.")
+
+    return model_weights  # Send updated model weights
 
 def start_server():
     """Starts the Raspberry Pi server and keeps it running indefinitely."""
@@ -28,7 +48,8 @@ def start_server():
             print(f"🔗 Connected to client at {addr}")
 
             try:
-                while True:  # ✅ Keep processing new gradients without disconnecting
+                while True:
+                    # Step 1: Receive Image and Label
                     size_data = conn.recv(8)
                     if not size_data:
                         print("❌ Connection lost. Waiting for new client...")
@@ -42,17 +63,21 @@ def start_server():
                             break
                         data += chunk
 
-                    gradients = pickle.loads(data)
-                    processed_gradients = compute_gradients_numpy(gradients)
+                    # Deserialize image + label
+                    image, label = pickle.loads(data)
+                    print("📥 Received image and label. Starting training on edge device...")
 
-                    serialized_response = pickle.dumps(processed_gradients)
+                    # Step 2: Perform local training (NumPy)
+                    updated_weights = train_on_edge_device(image, label)
+
+                    # Step 3: Send updated weights back
+                    serialized_response = pickle.dumps(updated_weights)
                     response_size = len(serialized_response)
 
                     conn.sendall(response_size.to_bytes(8, "big"))
                     conn.sendall(serialized_response)
 
-                    print("✅ Processed gradients sent successfully!")
-                    print("🔄 Ready for next batch of gradients...")  # ✅ Keep looping
+                    print("✅ Updated weights sent back to client. Ready for next batch.")
 
             except Exception as e:
                 print(f"❌ Error: {e}")
