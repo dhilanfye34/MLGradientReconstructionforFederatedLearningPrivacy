@@ -1,42 +1,43 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
 import socket
 import pickle
-import numpy as np
+from cnn_model import SmallCNN  # Import updated model
 
 HOST = "0.0.0.0"
 PORT = 12345
 BUFFER_SIZE = 4096
-LEARNING_RATE = 0.01  # Step size for updates
+LEARNING_RATE = 0.01
 
-# Initialize model parameters (NumPy version of ResNet weights)
-model_weights = {
-    "W1": np.random.randn(64, 3, 7, 7),  # Example weights
-    "b1": np.zeros((64,)),  # Bias
-    "W2": np.random.randn(64, 64, 3, 3),
-    "b2": np.zeros((64,)),
-    "W3": np.random.randn(128, 64, 3, 3),
-    "b3": np.zeros((128,)),
-}
+# ✅ Initialize model (ensure cnn_model.py allows pretrained loading)
+model = SmallCNN(pretrained=True)
+model.train()  # Set model to training mode
+optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE)
+criterion = nn.CrossEntropyLoss()
 
 def train_on_edge_device(image, label):
-    """
-    Simulates training by applying simple gradient descent in NumPy.
-    This assumes `image` is a NumPy array of shape (3, 224, 224) and `label` is an int.
-    """
-    global model_weights  # Access model parameters
+    global model, optimizer
 
-    # Simulated forward pass: compute gradients
-    gradients = {key: np.random.randn(*model_weights[key].shape) for key in model_weights}
+    # Convert image and label to tensors
+    image = torch.tensor(image, dtype=torch.float32).unsqueeze(0)  # Add batch dim
+    label = torch.tensor(label, dtype=torch.long).unsqueeze(0)  # Add batch dim
 
-    # Simulated gradient descent update
-    for key in model_weights:
-        model_weights[key] -= LEARNING_RATE * gradients[key]  # W_new = W - η * grad
+    # Forward pass
+    output = model(image)
+    loss = criterion(output, label)
 
-    print("✅ Local training complete. Returning updated weights.")
+    # Backward pass
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
 
-    return model_weights  # Send updated model weights
+    print("✅ Training step complete. Returning updated weights.")
+
+    return model.state_dict()  # Send updated model weights
 
 def start_server():
-    """Starts the Raspberry Pi server and keeps it running indefinitely."""
+    """Starts the Raspberry Pi server."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind((HOST, PORT))
@@ -49,10 +50,9 @@ def start_server():
 
             try:
                 while True:
-                    # Step 1: Receive Image and Label
                     size_data = conn.recv(8)
                     if not size_data:
-                        print("❌ Connection lost. Waiting for new client...")
+                        print("❌ Connection lost.")
                         break  
 
                     data_size = int.from_bytes(size_data, "big")
@@ -65,19 +65,17 @@ def start_server():
 
                     # Deserialize image + label
                     image, label = pickle.loads(data)
-                    print("📥 Received image and label. Starting training on edge device...")
+                    print("📥 Received CIFAR-10 image. Starting training...")
 
-                    # Step 2: Perform local training (NumPy)
+                    # Train and get updated weights
                     updated_weights = train_on_edge_device(image, label)
 
-                    # Step 3: Send updated weights back
+                    # Serialize and send back weights
                     serialized_response = pickle.dumps(updated_weights)
-                    response_size = len(serialized_response)
-
-                    conn.sendall(response_size.to_bytes(8, "big"))
+                    conn.sendall(len(serialized_response).to_bytes(8, "big"))
                     conn.sendall(serialized_response)
 
-                    print("✅ Updated weights sent back to client. Ready for next batch.")
+                    print("✅ Updated weights sent back.")
 
             except Exception as e:
                 print(f"❌ Error: {e}")
