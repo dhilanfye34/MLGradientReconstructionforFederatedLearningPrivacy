@@ -1,27 +1,31 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import socket
 import pickle
-from cnn_model import SmallCNN  # Import updated model
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from cnn_model import SmallCNN
 
 HOST = "0.0.0.0"
 PORT = 12345
 BUFFER_SIZE = 4096
 LEARNING_RATE = 0.01
 
-# ✅ Initialize model (ensure cnn_model.py allows pretrained loading)
+# Correct path to pretrained weights
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # Moves up one level
+WEIGHTS_PATH = os.path.join(BASE_DIR, "cifar10_pretrained.pth")
+
+# **Initialize model with pretrained CIFAR-10 weights**
 model = SmallCNN(pretrained=True)
-model.train()  # Set model to training mode
 optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE)
 criterion = nn.CrossEntropyLoss()
 
 def train_on_edge_device(image, label):
     global model, optimizer
-
-    # Convert image and label to tensors
-    image = torch.tensor(image, dtype=torch.float32).unsqueeze(0)  # Add batch dim
-    label = torch.tensor(label, dtype=torch.long).unsqueeze(0)  # Add batch dim
 
     # Forward pass
     output = model(image)
@@ -63,14 +67,11 @@ def start_server():
                             break
                         data += chunk
 
-                    # Deserialize image + label
                     image, label = pickle.loads(data)
                     print("📥 Received CIFAR-10 image. Starting training...")
 
-                    # Train and get updated weights
-                    updated_weights = train_on_edge_device(image, label)
+                    updated_weights = train_on_edge_device(torch.tensor(image), torch.tensor(label))
 
-                    # Serialize and send back weights
                     serialized_response = pickle.dumps(updated_weights)
                     conn.sendall(len(serialized_response).to_bytes(8, "big"))
                     conn.sendall(serialized_response)
