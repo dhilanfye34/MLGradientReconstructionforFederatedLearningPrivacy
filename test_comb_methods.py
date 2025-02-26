@@ -1,55 +1,35 @@
-import socket
-import pickle
 import torch
 import torchvision
-import matplotlib.pyplot as plt
-from torchvision.utils import save_image
-from torchvision.models import ResNet18_Weights
-from comb_methods import combined_gradient_matching
-from inversefed import utils, consts
-from PIL import Image
-from torchvision import transforms
-import numpy as np
+import torchvision.transforms as transforms
+from cnn_model import SmallCNN  # Import SmallCNN model
+import socket
+import pickle
 import time
 
-# Step 1: System Setup
-setup = utils.system_startup()
+# **Load CIFAR-10 Dataset**
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+])
 
-# Load normalization constants for ImageNet
-dm = torch.as_tensor(consts.imagenet_mean, **setup)[:, None, None]
-ds = torch.as_tensor(consts.imagenet_std, **setup)[:, None, None]
+cifar10_dataset = torchvision.datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
+image, label = cifar10_dataset[0]  # Get the first image & label
+image = image.unsqueeze(0)  # Add batch dimension
+label = torch.tensor([label], dtype=torch.long)  # Ensure proper label format
 
-# **Helper function to plot images**
-def plot(tensor, title, save_path=None):
-    tensor = tensor.clone().detach()
-    tensor.mul_(ds).add_(dm).clamp_(0, 1)
-    tensor_to_plot = tensor[0].permute(1, 2, 0).cpu()
-    plt.imshow(tensor_to_plot)
-    plt.title(title)
-    if save_path:
-        save_image(tensor, save_path)
-    plt.show()
-
-# **Function to send gradients to Raspberry Pi and receive processed gradients**
+# **Function to send image & label to Raspberry Pi**
 def send_to_raspberry_pi(client_socket, image_tensor, label):
     """ Sends image tensor and label to Raspberry Pi for local training. """
-    # Serialize image tensor & label
     data = pickle.dumps((image_tensor.numpy(), label.numpy()))
     data_size = len(data)
-    print(f"📤 Sending {data_size} bytes of image data...")
 
-    # Send data size first
     client_socket.sendall(data_size.to_bytes(8, "big"))
 
-    # Send data in chunks
-    sent_bytes = 0
     chunk_size = 4096
     for i in range(0, data_size, chunk_size):
         client_socket.sendall(data[i:i+chunk_size])
-        sent_bytes += min(4096, data_size - sent_bytes)
-        print(f"✅ Sent {sent_bytes}/{data_size} bytes...")
-
-    print("✅ Finished sending image. Waiting for model updates...")
+    
+    print("✅ Finished sending CIFAR-10 image. Waiting for model updates...")
 
     # Receive processed model size
     size_data = client_socket.recv(8)
@@ -71,47 +51,32 @@ def send_to_raspberry_pi(client_socket, image_tensor, label):
 
 # **Main training function**
 def run_training():
-    """ Sends images to Raspberry Pi for local training and updates local model with received weights. """
-    model = torchvision.models.resnet18(weights=ResNet18_Weights.DEFAULT)
-    model.to(**setup)
+    model = SmallCNN(pretrained=True)  # ✅ Load with pretrained CIFAR-10 weights
     model.eval()
 
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-    image = Image.open("images/11794_ResNet18_ImageNet_input.png").convert("RGB")
-    ground_truth = transform(image).unsqueeze(0).to(**setup)
-
-    label = torch.tensor([243], device=setup['device'])
-    plot(ground_truth, f"Ground Truth (Label: {label})", "11794_input_image.png")
-
-    while True:  # ✅ Loop indefinitely
+    while True:
         try:
-            # **Persistent connection to Raspberry Pi**
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
                 client_socket.connect(("192.168.4.171", 12345))
                 print("🔗 Connected to Raspberry Pi server.")
 
-                while True:  # ✅ Inner loop for continuous updates
-                    print("🔄 Sending image to Raspberry Pi for training...")
-
-                    updated_model_weights = send_to_raspberry_pi(client_socket, ground_truth, label)
+                while True:
+                    print("🔄 Sending CIFAR-10 image to Raspberry Pi for training...")
+                    updated_model_weights = send_to_raspberry_pi(client_socket, image, label)
+                    
                     if updated_model_weights is None:
-                        print("⚠️ Connection lost, restarting...")
-                        break  # If connection is lost, restart
+                        print("⚠️ Connection lost, skipping update...")
+                        continue  
 
-                    # ✅ Load the updated model weights
                     model.load_state_dict(updated_model_weights)
+                    model.eval()  # ✅ Set model to evaluation mode after update
                     print("✅ Model updated with new weights. Restarting process...\n")
 
-                    time.sleep(5)  # ✅ Small delay before sending the next round
+                    time.sleep(5)
 
         except Exception as e:
-            print(f"❌ Error: {e}. Restarting...")
-            time.sleep(5)  # ✅ Prevent rapid restart spam
+            print(f"❌ Error: {e}. Restarting in 5 seconds...")
+            time.sleep(5)
 
-# **Run the training process**
 if __name__ == "__main__":
     run_training()
