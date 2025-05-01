@@ -18,7 +18,7 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=500, 
 
     # Initialize dummy data and labels
     dummy_data = torch.randn((1, 1, 28, 28), requires_grad=True, device=origin_grad[0].device)
-    dummy_label = torch.tensor([label], device=origin_grad[0].device)  # label from MNIST
+    dummy_label = torch.tensor([label], device=origin_grad[0].device)
 
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.005)
 
@@ -30,7 +30,6 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=500, 
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label)
-
             dummy_gradients = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
 
             if iteration < switch_iteration:
@@ -52,12 +51,20 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=500, 
 
         optimizer.step(closure)
 
-        if iteration % 50 == 0 or iteration == 999:
+        # Save intermediate images every 50 iterations
+        if iteration % 50 == 0:
             mean = torch.tensor([0.5], device=dummy_data.device).view(1, 1, 1, 1)
             std = torch.tensor([0.5], device=dummy_data.device).view(1, 1, 1, 1)
             normalized_data = (dummy_data * std + mean).clamp(0, 1)
-            save_image(normalized_data.clone().detach(), f"results/reconstructed_iter_{iteration}.png")
-            print(f"💾 Saved image for iteration {iteration}")
+            save_path = os.path.join(results_dir, f"reconstructed_iter_{iteration}.png")
+            save_image(normalized_data.clone().detach(), save_path)
+            print(f"💾 Saved image for iteration {iteration} at: {os.path.abspath(save_path)}")
+
+    # Final image save after 1000 iterations
+    final_path = os.path.join(results_dir, "final_reconstructed_image.png")
+    normalized_data = (dummy_data * std + mean).clamp(0, 1)
+    save_image(normalized_data.clone().detach(), final_path)
+    print(f"🖼️ Final reconstructed image saved at: {os.path.abspath(final_path)}")
 
     print("✅ Gradient Matching Complete!")
     return dummy_data, dummy_label
