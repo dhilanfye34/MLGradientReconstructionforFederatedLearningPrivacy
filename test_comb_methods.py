@@ -20,7 +20,10 @@ transform = transforms.Compose([
 ])
 
 mnist_dataset = torchvision.datasets.MNIST(root="./dataset_assets", train=True, download=True, transform=transform)
-image, label = mnist_dataset[0]
+for i in range(len(mnist_dataset)):
+    if mnist_dataset[i][1] == 1:  # or 0
+        image, label = mnist_dataset[i]
+        break
 image = image.unsqueeze(0)
 label = torch.tensor([label], dtype=torch.long)
 
@@ -32,7 +35,7 @@ def send_to_raspberry_pi(image_tensor, label_tensor):
     Sends the image and label to the Pi, receives a reconstructed image tensor.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
-        client_socket.connect(("192.168.4.171", 12345))  # <-- Replace with Pi IP if needed
+        client_socket.connect(("10.141.140.189", 12345))  # <-- Replace with Pi IP if needed
         print("🔗 Connected to Raspberry Pi server.")
 
         # Serialize the image and label
@@ -76,7 +79,7 @@ if __name__ == "__main__":
     print(f"👀 Sending label: {label.item()}")
     from matplotlib import pyplot as plt
 
-# Save and show original input image
+    # Save and show original input image
     unnorm = (image * 0.5 + 0.5).clamp(0, 1)  # Undo normalization
     save_image(unnorm, "results/original_sent_image.png")
 

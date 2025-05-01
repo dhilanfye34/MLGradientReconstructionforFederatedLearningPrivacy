@@ -32,7 +32,7 @@ def reconstruct_image(image_tensor, label_tensor):
     origin_grad = grad(loss, model.parameters(), create_graph=False)
 
     print("✅ Computed gradients from incoming image.")
-    dummy_data, _ = combined_gradient_matching(model, origin_grad, int(label_tensor.item()), switch_iteration=150)
+    dummy_data, _ = combined_gradient_matching(model, origin_grad, int(label_tensor.item()), switch_iteration=500)
     return dummy_data
 
 def start_server():

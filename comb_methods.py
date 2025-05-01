@@ -30,6 +30,8 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=500, 
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label)
+            if debug and iteration % 10 == 0:
+                print(f"Dummy prediction: {torch.argmax(dummy_pred).item()}, Loss: {dummy_loss.item():.4f}")
             dummy_gradients = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
 
             if iteration < switch_iteration:
