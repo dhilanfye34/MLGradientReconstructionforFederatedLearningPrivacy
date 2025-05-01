@@ -26,6 +26,8 @@ def reconstruct_image(image_tensor, label_tensor):
     # Compute original gradients from real image
     image_tensor.requires_grad = True
     output = model(image_tensor)
+    pred = torch.argmax(output, dim=1)
+    print(f"🧠 Server model prediction: {pred.item()} | True label: {label_tensor.item()}")
     loss = F.cross_entropy(output, label_tensor)
     origin_grad = grad(loss, model.parameters(), create_graph=False)
 
