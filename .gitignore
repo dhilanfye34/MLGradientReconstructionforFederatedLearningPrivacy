@@ -143,5 +143,5 @@ dmypy.json
 
 scripts/
 
-data/cifar-10-batches-py/
-data/cifar-10-python.tar.gz
+dataset_assets/cifar-10-batches-py/
+dataset_assets/cifar-10-python.tar.gz

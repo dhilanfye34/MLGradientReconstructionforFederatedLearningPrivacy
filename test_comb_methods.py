@@ -19,7 +19,7 @@ transform = transforms.Compose([
     transforms.Normalize((0.5,), (0.5,))
 ])
 
-mnist_dataset = torchvision.datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+mnist_dataset = torchvision.datasets.MNIST(root="./dataset_assets", train=True, download=True, transform=transform)
 image, label = mnist_dataset[0]
 image = image.unsqueeze(0)
 label = torch.tensor([label], dtype=torch.long)

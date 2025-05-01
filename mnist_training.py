@@ -13,7 +13,7 @@ transform = transforms.Compose([
 ])
 
 # Load MNIST training dataset
-train_dataset = torchvision.datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+train_dataset = torchvision.datasets.MNIST(root="./dataset_assets", train=True, download=True, transform=transform)
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
 
 # Initialize CNN model
