@@ -2,71 +2,71 @@ import os
 import torch
 import torch.nn.functional as F
 from torch.autograd import grad
-from torchvision.utils import save_image        
+from torchvision.utils import save_image
 from inversefed.reconstruction_algorithms import GradientReconstructor
 from inversefed.metrics import total_variation as TV
 from cnn_model import SmallCNN  # Use local CIFAR-10 model
 
-def combined_gradient_matching(model, origin_grad, switch_iteration=50, use_tv=True):
+
+def combined_gradient_matching(model, origin_grad, label, switch_iteration=10, use_tv=True, debug=False):
     """
     Combined gradient matching: switches from DLG (L2) to cosine-based reconstruction.
+    Prints minimal output unless debug=True.
     """
     results_dir = "results"
     os.makedirs(results_dir, exist_ok=True)
 
     # Initialize dummy data and labels
     dummy_data = torch.randn((1, 3, 32, 32), requires_grad=True, device=origin_grad[0].device)
-    dummy_label = torch.tensor([0] * dummy_data.size(0), device=origin_grad[0].device)  # Dummy label, will be overwritten
+    dummy_label = torch.tensor([label.item()], device=origin_grad[0].device)
 
-    # Set up optimizer
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.01)
 
-    # Optimization loop
-    for iteration in range(100):
-        print(f"\n--- Iteration {iteration} ---")  # Iteration marker
+    for iteration in range(20):
+        if iteration % 5 == 0:
+            print(f"🔁 Iteration {iteration}...")
 
         def closure():
-            print(f"Iteration {iteration}: Inside closure function.")
             optimizer.zero_grad()
             dummy_pred = model(dummy_data)
             dummy_loss = F.cross_entropy(dummy_pred, dummy_label)
 
             dummy_gradients = torch.autograd.grad(dummy_loss, model.parameters(), create_graph=True)
-            print(f"Iteration {iteration}: Computed dummy gradients.")
 
             if iteration < switch_iteration:
-                print(f"Iteration {iteration}: Using L2 gradient difference (DLG)...")
                 grad_diff = sum((dg - og).norm() for dg, og in zip(dummy_gradients, origin_grad) if dg.shape == og.shape)
             else:
-                print(f"Iteration {iteration}: Using Cosine Similarity-based matching...")
-                grad_diff = sum(1 - F.cosine_similarity(dg.flatten(), og.flatten(), dim=0) for dg, og in zip(dummy_gradients, origin_grad) if dg.shape == og.shape)
+                grad_diff = sum(1 - F.cosine_similarity(dg.flatten(), og.flatten(), dim=0)
+                                for dg, og in zip(dummy_gradients, origin_grad) if dg.shape == og.shape)
 
             if use_tv:
                 tv_loss = TV(dummy_data) * 1e-2
                 grad_diff = grad_diff + tv_loss
-                print(f"Iteration {iteration}: TV Regularization = {tv_loss.item()}")
+
+            if debug and iteration % 10 == 0:
+                print(f"   Grad diff: {grad_diff.item():.4f}")
 
             grad_diff.requires_grad_()
-            print(f"Iteration {iteration}: Gradient Difference = {grad_diff.item()}")
             grad_diff.backward()
             return grad_diff
 
         optimizer.step(closure)
 
         if iteration % 10 == 0:
-            print(f"Iteration {iteration}: Saving reconstructed image...")
             mean = torch.tensor([0.5, 0.5, 0.5], device=dummy_data.device).view(1, 3, 1, 1)
             std = torch.tensor([0.5, 0.5, 0.5], device=dummy_data.device).view(1, 3, 1, 1)
             normalized_data = (dummy_data * std + mean).clamp(0, 1)
             save_image(normalized_data.clone().detach(), f"results/reconstructed_iter_{iteration}.png")
+            print(f"💾 Saved image for iteration {iteration}")
 
     print("✅ Gradient Matching Complete!")
-    print(f"Final Dummy Data Stats: Mean = {dummy_data.mean().item()}, Std = {dummy_data.std().item()}")
     return dummy_data, dummy_label
+
 
 if __name__ == "__main__":
     import pickle
     import sys
+
     # Load sample image and label from socket or pickle for testing
     if len(sys.argv) == 2 and sys.argv[1].endswith(".pkl"):
         with open(sys.argv[1], "rb") as f:
