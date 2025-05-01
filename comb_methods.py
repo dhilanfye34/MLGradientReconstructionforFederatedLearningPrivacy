@@ -8,7 +8,7 @@ from inversefed.metrics import total_variation as TV
 from cnn_model import SmallCNN  # Use local MNIST model
 
 
-def combined_gradient_matching(model, origin_grad, label, switch_iteration=10, use_tv=True, debug=False):
+def combined_gradient_matching(model, origin_grad, label, switch_iteration=150, use_tv=True, debug=False):
     """
     Combined gradient matching: switches from DLG (L2) to cosine-based reconstruction.
     Prints minimal output unless debug=True.
@@ -22,7 +22,7 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=10, u
 
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.01)
 
-    for iteration in range(20):
+    for iteration in range(300):
         if iteration % 5 == 0:
             print(f"🔁 Iteration {iteration}...")
 
@@ -40,7 +40,7 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=10, u
                                 for dg, og in zip(dummy_gradients, origin_grad) if dg.shape == og.shape)
 
             if use_tv:
-                tv_loss = TV(dummy_data) * 1e-2
+                tv_loss = TV(dummy_data) * 1e-3
                 grad_diff = grad_diff + tv_loss
 
             if debug and iteration % 10 == 0:
