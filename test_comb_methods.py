@@ -73,6 +73,17 @@ def send_to_raspberry_pi(image_tensor, label_tensor):
 # Main function
 # -----------------------------
 if __name__ == "__main__":
+    print(f"👀 Sending label: {label.item()}")
+    from matplotlib import pyplot as plt
+
+# Save and show original input image
+    unnorm = (image * 0.5 + 0.5).clamp(0, 1)  # Undo normalization
+    save_image(unnorm, "results/original_sent_image.png")
+
+    plt.imshow(unnorm.squeeze().numpy(), cmap="gray")
+    plt.title(f"Original Image (Label: {label.item()})")
+    plt.axis("off")
+    plt.show()
     reconstructed = send_to_raspberry_pi(image, label)
 
     if reconstructed is not None:
