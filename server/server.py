@@ -22,6 +22,7 @@ def reconstruct_image(image_tensor, label_tensor):
     image_tensor = image_tensor.to(torch.float32)
     label_tensor = label_tensor.to(torch.long)
 
+    print(f"🎯 Reconstructing image with label: {label_tensor.item()}")
     # Compute original gradients from real image
     image_tensor.requires_grad = True
     output = model(image_tensor)
