@@ -12,16 +12,17 @@ from torchvision.utils import save_image
 os.makedirs("results", exist_ok=True)
 
 # -----------------------------
-# Load CIFAR-10 Dataset
+# Load MNIST Dataset
 # -----------------------------
 transform = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    transforms.Normalize((0.5,), (0.5,))
 ])
-cifar10_dataset = torchvision.datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
-image, label = cifar10_dataset[0]  # Use the first image for this example
-image = image.unsqueeze(0)  # Add a batch dimension
-label = torch.tensor([label], dtype=torch.long)  # Ensure label is a tensor
+
+mnist_dataset = torchvision.datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+image, label = mnist_dataset[0]
+image = image.unsqueeze(0)
+label = torch.tensor([label], dtype=torch.long)
 
 # -----------------------------
 # Function to send image & label to the Pi
@@ -37,7 +38,7 @@ def send_to_raspberry_pi(image_tensor, label_tensor):
         # Serialize the image and label
         data = pickle.dumps((image_tensor.numpy(), label_tensor.numpy()))
         data_size = len(data)
-        print(f"📤 Sending {data_size} bytes of CIFAR-10 image data...")
+        print(f"📤 Sending {data_size} bytes of MNIST image data...")
         client_socket.sendall(data_size.to_bytes(8, "big"))
 
         # Send data in chunks
@@ -76,8 +77,8 @@ if __name__ == "__main__":
 
     if reconstructed is not None:
         # Un-normalize before saving
-        mean = torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1)
-        std = torch.tensor([0.5, 0.5, 0.5]).view(1, 3, 1, 1)
+        mean = torch.tensor([0.5]).view(1, 1, 1, 1)
+        std = torch.tensor([0.5]).view(1, 1, 1, 1)
         reconstructed_img = (reconstructed * std + mean).clamp(0, 1)
 
         save_path = "results/reconstructed_from_board.png"

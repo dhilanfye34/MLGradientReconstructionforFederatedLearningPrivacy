@@ -5,7 +5,7 @@ from torch.autograd import grad
 from torchvision.utils import save_image
 from inversefed.reconstruction_algorithms import GradientReconstructor
 from inversefed.metrics import total_variation as TV
-from cnn_model import SmallCNN  # Use local CIFAR-10 model
+from cnn_model import SmallCNN  # Use local MNIST model
 
 
 def combined_gradient_matching(model, origin_grad, label, switch_iteration=10, use_tv=True, debug=False):
@@ -17,8 +17,8 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=10, u
     os.makedirs(results_dir, exist_ok=True)
 
     # Initialize dummy data and labels
-    dummy_data = torch.randn((1, 3, 32, 32), requires_grad=True, device=origin_grad[0].device)
-    dummy_label = torch.tensor([label.item()], device=origin_grad[0].device)
+    dummy_data = torch.randn((1, 1, 28, 28), requires_grad=True, device=origin_grad[0].device)
+    dummy_label = torch.tensor([label], device=origin_grad[0].device)  # label from MNIST
 
     optimizer = torch.optim.LBFGS([dummy_data], lr=0.01)
 
@@ -53,15 +53,14 @@ def combined_gradient_matching(model, origin_grad, label, switch_iteration=10, u
         optimizer.step(closure)
 
         if iteration % 10 == 0:
-            mean = torch.tensor([0.5, 0.5, 0.5], device=dummy_data.device).view(1, 3, 1, 1)
-            std = torch.tensor([0.5, 0.5, 0.5], device=dummy_data.device).view(1, 3, 1, 1)
+            mean = torch.tensor([0.5], device=dummy_data.device).view(1, 1, 1, 1)
+            std = torch.tensor([0.5], device=dummy_data.device).view(1, 1, 1, 1)
             normalized_data = (dummy_data * std + mean).clamp(0, 1)
             save_image(normalized_data.clone().detach(), f"results/reconstructed_iter_{iteration}.png")
             print(f"💾 Saved image for iteration {iteration}")
 
     print("✅ Gradient Matching Complete!")
     return dummy_data, dummy_label
-
 
 if __name__ == "__main__":
     import pickle
@@ -74,14 +73,14 @@ if __name__ == "__main__":
             image = torch.tensor(image, dtype=torch.float32)
             label = torch.tensor(label, dtype=torch.long)
     else:
-        # Fallback CIFAR-10 image
+        # Fallback MNIST image
         from torchvision import datasets, transforms
         transform = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+            transforms.Normalize(mean=(0.5,), std=(0.5,))
         ])
-        cifar10 = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
-        image, label = cifar10[0]
+        mnist = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
+        image, label = mnist[0]
         image = image.unsqueeze(0)
         label = torch.tensor([label])
 
