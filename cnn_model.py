@@ -35,3 +35,8 @@ class SmallCNN(nn.Module):
             print("✅ Successfully loaded pretrained weights!")
         except Exception as e:
             print(f"❌ Failed to load pretrained weights: {e}")
+
+def load_from_state_dict(state):
+    m = SmallCNN(pretrained=False)
+    m.load_state_dict(state)
+    return m
