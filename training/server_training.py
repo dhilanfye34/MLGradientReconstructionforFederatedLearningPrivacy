@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import sys, os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import socket, threading, pickle, argparse, torch
 from cnn_model import SmallCNN
 from training.utils import send_pkl, recv_pkl, average_state_dicts
