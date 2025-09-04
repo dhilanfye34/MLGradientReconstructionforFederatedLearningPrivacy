@@ -57,7 +57,15 @@ def main():
 
         while True:
             print("[client] waiting for global weights…", flush=True)
-            state_dict = recv_pkl(s)                         # global weights
+            try:
+                state_dict = recv_pkl(s)  # global weights
+            except EOFError:
+                print("[client] server closed connection (EOF). exiting.", flush=True)
+                return
+            except Exception as e:
+                print(f"[client] error receiving global weights: {e}. exiting.", flush=True)
+                return
+
             print(f"[client] received W_k ({_count_params(state_dict):,} params). training 1 local epoch…", flush=True)
 
             model = SmallCNN(pretrained=False)

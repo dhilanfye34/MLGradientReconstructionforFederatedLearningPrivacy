@@ -8,6 +8,9 @@ from training.utils import send_pkl, recv_pkl, average_state_dicts
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
+CKPT_DIR = os.path.join(os.path.dirname(__file__), "checkpoints")
+os.makedirs(CKPT_DIR, exist_ok=True)
+
 # ---------- helpers for nice logs ----------
 def _count_params(state):
     return sum(t.numel() for t in state.values())
@@ -93,14 +96,14 @@ def main():
 
         print("[server] aggregating (FedAvg)...", flush=True)
         GLOBAL_STATE = average_state_dicts(updates)
-        torch.save(GLOBAL_STATE, f'training/round_{r}.pth')
+        torch.save(GLOBAL_STATE, os.path.join(CKPT_DIR, f"round_{r}.pth"))
 
         dW = _l2_delta(prev_state, GLOBAL_STATE).item()
         acc = eval_acc(GLOBAL_STATE, val_loader, device=device)
         dt = time.time() - t0
         print(f"[server] round {r:02d} complete | ΔW L2 = {dW:.2f} | val acc = {acc:.2%} | time = {dt:.1f}s\n", flush=True)
 
-    print("[server] training done. checkpoints saved as training/round_*.pth", flush=True)
+    print(f"[server] training done. checkpoints saved in {CKPT_DIR}", flush=True)
 
 if __name__ == '__main__':
     main()
