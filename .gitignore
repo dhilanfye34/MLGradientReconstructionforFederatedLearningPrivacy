@@ -145,3 +145,4 @@ scripts/
 
 dataset_assets/cifar-10-batches-py/
 dataset_assets/cifar-10-python.tar.gz
+training/data/
