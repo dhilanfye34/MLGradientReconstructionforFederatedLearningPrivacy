@@ -11,18 +11,22 @@ from torchvision import datasets, transforms
 CKPT_DIR = os.path.join(os.path.dirname(__file__), "checkpoints")
 os.makedirs(CKPT_DIR, exist_ok=True)
 
-# ---------- helpers for nice logs ----------
+# helpers for nice logs and eval
 def _count_params(state):
+    # just counting how many parameters are in the model
     return sum(t.numel() for t in state.values())
 
 def _l2_delta(prev, curr):
+    # calculate how much the weights changed between rounds
     return torch.sqrt(sum((curr[k] - prev[k]).float().pow(2).sum() for k in curr))
 
 def eval_acc(state, loader, device):
+    # quick function to check how good our global model is
     model = SmallCNN(pretrained=False)
     model.load_state_dict(state)
     model.to(device).eval()
     correct = total = 0
+    # run through the test set and count correct predictions
     with torch.no_grad():
         for x, y in loader:
             x, y = x.to(device), y.to(device)
@@ -32,11 +36,14 @@ def eval_acc(state, loader, device):
     return correct / total
 
 def client_handler(idx, sock, addr, barrier, recv_list):
+    # each client gets its own thread to handle communication
     print(f"[client {idx}] connected from {addr}", flush=True)
     while True:
         # main thread prints round info; here we just do the send/recv
         barrier.wait()  # wait until server says 'broadcast now'
+        # send the current global model to this client
         send_pkl(sock, GLOBAL_STATE)
+        # wait for the client to train and send back updated weights
         updated = recv_pkl(sock)
         recv_list[idx] = updated
         print(f"[client {idx}] received local update ({_count_params(updated):,} params)", flush=True)
@@ -49,13 +56,15 @@ def main():
     p.add_argument('--rounds', type=int, default=20)
     args = p.parse_args()
 
-    # --- listen & accept N devices
+    # listen & accept N devices
+    # set up the server socket to listen for clients
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('', args.port))
     server.listen(args.devices)
     print(f"[server] listening on 0.0.0.0:{args.port} — waiting for {args.devices} device(s)...", flush=True)
 
+    # wait for all the clients to connect before we start
     socks, addrs = [], []
     for i in range(args.devices):
         conn, addr = server.accept()
@@ -64,28 +73,34 @@ def main():
 
     print(f"[server] all {args.devices} devices connected. starting federated rounds.\n", flush=True)
 
-    # --- datasets for quick validation
+    # datasets for quick validation
+    # load test set so we can evaluate accuracy after each round
     tx = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
     val_loader = DataLoader(datasets.MNIST('./data', train=False, download=True, transform=tx),
                             batch_size=256, shuffle=False)
 
-    # --- global model init
+    # global model init
+    # start with a pretrained model that already works pretty well
     global GLOBAL_STATE
     GLOBAL_STATE = SmallCNN(pretrained=True).state_dict()  # start from your pretrained 97% ckpt
     print(f"[server] initial global model ready ({_count_params(GLOBAL_STATE):,} params)\n", flush=True)
 
+    # barrier helps coordinate all the threads so they stay in sync
     barrier = threading.Barrier(args.devices + 1)  # +1 for main thread
     updates = [None] * args.devices
 
+    # spin up a thread for each client connection
     for idx, (sock, addr) in enumerate(zip(socks, addrs)):
         threading.Thread(target=client_handler,
                          args=(idx, sock, addr, barrier, updates),
                          daemon=True).start()
 
     device = 'cpu'  # evaluation
+    # main federated learning loop
     for r in range(args.rounds):
         print(f"──────────────────────────────── Round {r:02d} ────────────────────────────────", flush=True)
         t0 = time.time()
+        # keep a copy of the old weights so we can see how much they change
         prev_state = {k: v.clone() for k, v in GLOBAL_STATE.items()}
 
         print(f"[server] broadcasting W_k to {args.devices} client(s)...", flush=True)
@@ -94,10 +109,13 @@ def main():
         print("[server] waiting for client updates...", flush=True)
         barrier.wait()   # all clients finished
 
+        # now we average all the client updates together (FedAvg algorithm)
         print("[server] aggregating (FedAvg)...", flush=True)
         GLOBAL_STATE = average_state_dicts(updates)
+        # save a checkpoint in case we want to analyze it later
         torch.save(GLOBAL_STATE, os.path.join(CKPT_DIR, f"round_{r}.pth"))
 
+        # calculate some metrics to see how training is going
         dW = _l2_delta(prev_state, GLOBAL_STATE).item()
         acc = eval_acc(GLOBAL_STATE, val_loader, device=device)
         dt = time.time() - t0
