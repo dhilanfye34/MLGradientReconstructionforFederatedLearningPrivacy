@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-import os, socket, pickle, torch
+import os, sys, socket, pickle, torch
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import torch.nn.functional as F
 from torch.autograd import grad
 from pathlib import Path
 from cnn_model import SmallCNN
+from torchvision.utils import save_image
 
-HOST, PORT = "0.0.0.0", 12346  # must match client host:(port+1)
+HOST, PORT = "0.0.0.0", 12346
 OUTDIR = Path(__file__).parent / "results"
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
@@ -22,52 +25,81 @@ def recv_pkl(conn):
         buf += chunk
     return pickle.loads(buf)
 
-def deep_leakage_from_gradients(model, target_grads, iters=800, log_every=50, save_every=100, device="cpu"):
-    """
-    Gradient-matching (DLG) for a single MNIST image (1x1x28x28).
-    target_grads: list[Tensor], same order as model.parameters()
-    """
-    model.eval()
+def total_variation(x):
+    # x: [1,1,28,28]
+    tv_h = (x[:, :, 1:, :] - x[:, :, :-1, :]).abs().mean()
+    tv_w = (x[:, :, :, 1:] - x[:, :, :, :-1]).abs().mean()
+    return tv_h + tv_w
 
-    # Dummy image & soft label to optimize
-    dummy_img = torch.randn(1, 1, 28, 28, device=device, requires_grad=True)
+def deep_leakage_from_gradients(model, grads_by_name, iters=6000, log_every=200, save_every=1000, device="cpu"):
+    """
+    DLG with named gradients + mild priors.
+    grads_by_name: dict {param_name: grad_tensor}
+    """
+    model.train()  # IMPORTANT: match single-example grad behavior
+    for p in model.parameters():
+        p.requires_grad_(True)
+
+    # Build params and targets **in the same name order**
+    name_param_pairs = [(n, p) for n, p in model.named_parameters()]
+    tgt = []
+    params = []
+    for n, p in name_param_pairs:
+        if n not in grads_by_name:
+            raise RuntimeError(f"Missing grad for param: {n}")
+        params.append(p)
+        tgt.append(grads_by_name[n].to(device).detach().float())
+    assert len(params) == len(tgt)
+
+    # Dummy variables we will optimize
+    dummy_img = torch.randn(1, 1, 28, 28, device=device, requires_grad=True)   # normalized space
     dummy_lbl_logits = torch.zeros(1, 10, device=device, requires_grad=True)
 
     opt = torch.optim.Adam([dummy_img, dummy_lbl_logits], lr=0.1)
-    tgt = [g.to(device).float() for g in target_grads]
+
+    # Priors
+    lambda_tv = 1e-4
+    lambda_l2 = 1e-6
 
     for it in range(1, iters + 1):
         opt.zero_grad()
 
-        pred = model(dummy_img)                                  # forward on dummy
-        pseudo_y = F.softmax(dummy_lbl_logits, dim=-1)           # soft label
-        loss = torch.sum(-pseudo_y * F.log_softmax(pred, dim=-1))  # CE with soft label
+        # Forward with soft label on dummy image
+        pred = model(dummy_img)
+        pseudo_y = F.softmax(dummy_lbl_logits, dim=-1)
+        ce = torch.sum(-pseudo_y * F.log_softmax(pred, dim=-1))  # CE with soft labels
 
-        dummy_grads = grad(loss, model.parameters(), create_graph=False)
+        # Gradients of CE wrt model params (first-order graph ON)
+        dummy_grads = grad(ce, params, create_graph=True)
 
-        grad_diff = sum((dg - tg).pow(2).sum() for dg, tg in zip(dummy_grads, tgt))
-        grad_diff.backward()
+        # Gradient-matching objective
+        match = sum((dg - tg).pow(2).sum() for dg, tg in zip(dummy_grads, tgt))
+
+        # Add tiny image priors to make the image less noisy
+        tv = total_variation(dummy_img)
+        l2 = (dummy_img ** 2).mean()
+        loss = match + lambda_tv * tv + lambda_l2 * l2
+
+        loss.backward()
         opt.step()
 
         if it % log_every == 0:
             with torch.no_grad():
-                pred_lbl = pred.argmax(dim=1).item()
-                print(f"🔁 it={it:04d} | grad_diff={grad_diff.item():.6f} | pred≈{pred_lbl}")
+                print(f"it={it:05d} | match={match.item():.6f} | tv={tv.item():.6f} | pred={pred.argmax(1).item()}")
 
         if it % save_every == 0:
             with torch.no_grad():
-                # unnormalize to [0,1] for viewing since training used Normalize(0.5,0.5)
-                img_vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()
-                path = OUTDIR / f"dlg_iter_{it}.pt"
-                torch.save(img_vis, path)
-                print(f"💾 saved dummy image tensor at {path}")
+                # Invert normalization for viewing (training used mean=0.5 std=0.5)
+                vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()
+                save_image(vis, OUTDIR / f"dlg_iter_{it}.png")
+                torch.save(dummy_img.detach().cpu(), OUTDIR / f"dlg_iter_{it}.pt")
+                print(f"🖼️ saved {OUTDIR / f'dlg_iter_{it}.png'}")
 
     with torch.no_grad():
-        final_img = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()
-        pred_lbl = F.softmax(dummy_lbl_logits, dim=-1).argmax(dim=-1).item()
-    torch.save(final_img, OUTDIR / "dlg_final_image.pt")
-    print(f"🖼️ final image saved at {OUTDIR / 'dlg_final_image.pt'} | pred label ≈ {pred_lbl}")
-    return final_img
+        vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()
+        save_image(vis, OUTDIR / "dlg_final_image.png")
+        torch.save(dummy_img.detach().cpu(), OUTDIR / "dlg_final_image.pt")
+        print(f"✅ final PNG saved at {OUTDIR / 'dlg_final_image.png'}")
 
 def main():
     print(f"[attack/DLG] listening on {HOST}:{PORT}")
@@ -79,11 +111,10 @@ def main():
         msg = recv_pkl(conn)
         conn.close()
 
-    grads = msg["grads"]                                   # list of tensors (CPU)
-    state_dict = msg["state_dict"]                         # model weights from client round
-    true_label = msg.get("label", None)
+    grads_by_name = msg["grads_by_name"]
+    state_dict = msg["state_dict"]
 
-    device = "cpu"  # use "cuda" if available and desired
+    device = "cpu"  # switch to "cuda" if you want
     model = SmallCNN(pretrained=False)
     # Ensure tensors
     state_dict = {k: (v if isinstance(v, torch.Tensor) else torch.tensor(v)) for k, v in state_dict.items()}
@@ -91,7 +122,7 @@ def main():
     model.to(device)
 
     print("[attack/DLG] starting reconstruction…")
-    deep_leakage_from_gradients(model, grads, iters=800, log_every=50, save_every=100, device=device)
+    deep_leakage_from_gradients(model, grads_by_name, iters=6000, log_every=200, save_every=1000, device=device)
     print("[attack/DLG] done.")
 
 if __name__ == "__main__":
