@@ -1,5 +1,5 @@
 import os, sys, socket, pickle, torch
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) # allow importing from parent directory
 import torch.nn.functional as F
 from torch.autograd import grad
 from pathlib import Path
@@ -10,20 +10,20 @@ HOST, PORT = "0.0.0.0", 12346
 OUTDIR = Path(__file__).parent / "results"
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
-DEBUG = True  # extra logging
+DEBUG = True  # extra debugging
 
 def recv_pkl(conn):
-    size_bytes = conn.recv(8)
+    size_bytes = conn.recv(8) 
     if not size_bytes:
         raise EOFError("socket closed before size header")
     size = int.from_bytes(size_bytes, "big")
     buf = b""
     while len(buf) < size:
-        chunk = conn.recv(min(4096, size - len(buf)))
+        chunk = conn.recv(min(4096, size - len(buf))) # read data in chunks until we get it all
         if not chunk:
             raise EOFError("socket closed mid-payload")
         buf += chunk
-    return pickle.loads(buf)
+    return pickle.loads(buf) 
 
 def total_variation(x):
     tv_h = (x[:, :, 1:, :] - x[:, :, :-1, :]).abs().mean()
@@ -31,24 +31,22 @@ def total_variation(x):
     return tv_h + tv_w
 
 def cosine_layer_loss_weighted(dummy_grads, tgt_grads, eps=1e-12):
-    """Mean cosine distance per layer, weighted by target grad norm."""
     losses, weights = [], []
-    
     for dg, tg in zip(dummy_grads, tgt_grads):
-        dg_f = dg.reshape(-1)  # flatten dummy grad
-        tg_f = tg.reshape(-1)  # flatten target grad
-        cos = (dg_f * tg_f).sum() / (dg_f.norm() * tg_f.norm() + eps)  # cosine similarity
-        losses.append(1.0 - cos)  # convert to distance
-        weights.append(tg_f.norm().detach() + eps)  # weight by target norm
+        dg_f = dg.reshape(-1)  
+        tg_f = tg.reshape(-1)  
+        cos = (dg_f * tg_f).sum() / (dg_f.norm() * tg_f.norm() + eps)  # calculate similarity between our fake gradients and the real ones
+        losses.append(1.0 - cos)  
+        weights.append(tg_f.norm().detach() + eps)  
     
     w = torch.stack(weights)
     L = torch.stack(losses)
     return (L * (w / w.sum())).sum()  # weighted average
 
-def deep_leakage_from_gradients(model, grads_by_name, fixed_label, *, iters=20000, log_every=1000, save_every=2000, device="cpu"):
+def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_size, *, msg=None, iters=20000, log_every=1000, save_every=2000, device="cpu"):
     model.train()  
     for p in model.parameters():
-        p.requires_grad_(True)  
+        p.requires_grad_(True)  # make sure we can calculate gradients for the model parameters
 
     params, tgt = [], []
     
@@ -59,7 +57,7 @@ def deep_leakage_from_gradients(model, grads_by_name, fixed_label, *, iters=2000
         if not torch.is_tensor(g):
             g = torch.tensor(g)  
         params.append(p)
-        tgt.append(g.to(device).detach().float())  
+        tgt.append(g.to(device).detach().float())  # store the target gradients we want to match
 
     if DEBUG:
         print(f"[DLG/debug] received {len(tgt)} layer-grads")
@@ -77,10 +75,25 @@ def deep_leakage_from_gradients(model, grads_by_name, fixed_label, *, iters=2000
         total_norm = torch.sqrt(sum(g.pow(2).sum() for g in tgt)).item()
         print(f"[DLG/debug] total target-grad L2 norm: {total_norm:.6f}")
 
-    dummy_img = torch.randn(1, 1, 28, 28, device=device, requires_grad=True)  
-    target_y = torch.tensor([int(fixed_label)], device=device)  
+    # Reconstruct labels for the batch
+    if "true_labels" in msg:
+        labels_list = msg["true_labels"]
+        print(f"[DLG] Using true label list from payload: {labels_list}")
+    else:
+        labels_list = []
+        for label, count in label_counts.items():
+            labels_list.extend([int(label)] * count)
+    
+    while len(labels_list) < leak_batch_size:
+        labels_list.append(labels_list[-1] if labels_list else 0)
+    labels_list = labels_list[:leak_batch_size]
 
-    opt = torch.optim.Adam([dummy_img], lr=0.05)  
+    target_y = torch.tensor(labels_list, device=device).long()
+    print(f"[DLG] Reconstructing batch of size {leak_batch_size} with labels: {labels_list}")
+
+    dummy_img = torch.randn(leak_batch_size, 1, 28, 28, device=device, requires_grad=True)  
+    
+    opt = torch.optim.Adam([dummy_img], lr=0.05)  # optimizer to change the dummy image
     lambda_tv = 2e-4   # small TV keeps edges but avoids smearing
     lambda_l2 = 1e-6
 
@@ -90,92 +103,90 @@ def deep_leakage_from_gradients(model, grads_by_name, fixed_label, *, iters=2000
     for it in range(1, iters + 1):
         opt.zero_grad()  
 
-        pred = model(dummy_img)  # forward pass
-        ce = F.cross_entropy(pred, target_y) 
-        dummy_grads = grad(ce, params, create_graph=True) # get gradients
-
-        match = cosine_layer_loss_weighted(dummy_grads, tgt)  # weighted cosine
-        tv = total_variation(dummy_img)  
-        l2 = (dummy_img ** 2).mean()  # l2 regularization
-        loss = match + lambda_tv * tv + lambda_l2 * l2  # total loss
-
-        loss.backward()  # backprop
-        opt.step()  # update image
+        pred = model(dummy_img)  # pass our fake image through the model
+        
+        # KEY CHANGE: reduction='sum' to match client's batch gradient summation
+        ce = F.cross_entropy(pred, target_y, reduction='sum') 
+        dummy_grads = grad(ce, params, create_graph=True) # calculate gradients for our fake image
+        match = cosine_layer_loss_weighted(dummy_grads, tgt) # compare our fake gradients to the real ones
+        tv = total_variation(dummy_img) 
+        l2 = (dummy_img ** 2).mean()  
+        loss = match + lambda_tv * tv + lambda_l2 * l2  # combine all losses
+        loss.backward()  # calculate how to change the dummy image to minimize loss
+        opt.step()  # update the dummy image
 
         with torch.no_grad():
-            dummy_img.clamp_(-1.0, 1.0)
+            dummy_img.clamp_(-1.0, 1.0) # keep pixel values in valid range
 
-        if it % log_every == 0:
+        if it % log_every == 0: # log every 1000 iterations
             with torch.no_grad():
                 print(f"it={it:05d} | match(cos)={match.item():.6f} | tv={tv.item():.6f} "
-                      f"| pred={pred.argmax(1).item()} | y*={int(target_y.item())}")  # progress update
+                      f"| loss={loss.item():.6f}")  
 
         if match.item() < best_match:
             best_match = match.item()
             
             with torch.no_grad():
-                vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()  # denormalize for display
-                save_image(vis, best_png)
+                vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu() 
+                save_image(vis, best_png, nrow=int(leak_batch_size**0.5)+1) # save grid
 
-        if it % save_every == 0:
+        if it % save_every == 0: # save every 2000 iterations
             with torch.no_grad():
                 vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()     
                 out_png = OUTDIR / f"dlg_iter_{it}.png"
                 
-                save_image(vis, out_png)  
+                save_image(vis, out_png, nrow=int(leak_batch_size**0.5)+1)  
                 torch.save(dummy_img.detach().cpu(), OUTDIR / f"dlg_iter_{it}.pt")  
-                print(f"🖼️ saved {out_png}")
+                print(f"Image saved: {out_png}")
 
     with torch.no_grad():
-        vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()  # final image
-        save_image(vis, OUTDIR / "dlg_final_image.png")  
+        vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()  
+        save_image(vis, OUTDIR / "dlg_final_image.png", nrow=int(leak_batch_size**0.5)+1)  
         torch.save(dummy_img.detach().cpu(), OUTDIR / "dlg_final_image.pt")  
-        print(f"✅ final PNG saved at {OUTDIR / 'dlg_final_image.png'} | best snapshot: {best_png} (match={best_match:.6f})")
+        print(f"Final PNG saved at {OUTDIR / 'dlg_final_image.png'} | best snapshot: {best_png} (match={best_match:.6f})")
 
 def main():
     print(f"[attack/DLG] listening on {HOST}:{PORT}")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  
         s.bind((HOST, PORT)); s.listen(1)  
-        conn, addr = s.accept()  
+        conn, addr = s.accept()  # accept the connection
         print(f"[attack/DLG] got payload from {addr}")
-        msg = recv_pkl(conn)  
+        msg = recv_pkl(conn)  # receive the leaked data
         conn.close()
 
     grads_by_name = msg["grads_by_name"]  
     state_dict = msg["state_dict"]  
-    maybe_label = msg.get("label", None)  
+    label_counts = msg.get("label_counts", {})
+    leak_batch_size = msg.get("leak_batch_size", 1)
 
     device = "cpu"
     model = SmallCNN(pretrained=False)  
     state_dict = {k: (v if isinstance(v, torch.Tensor) else torch.tensor(v)) for k, v in state_dict.items()}  
-    model.load_state_dict(state_dict)  
+    model.load_state_dict(state_dict)  # load the weights from the client
     model.to(device)  
 
     model_names = [n for n, _ in model.named_parameters()]
     missing = [n for n in model_names if n not in grads_by_name]
     extra = [n for n in grads_by_name.keys() if n not in set(model_names)]
     if DEBUG:
-        print(f"[DLG/debug] model has {len(model_names)} params; payload has {len(grads_by_name)} grads") # print the number of params and grads
+        print(f"[DLG/debug] model has {len(model_names)} params; payload has {len(grads_by_name)} grads") 
         if missing:
-            print("[DLG/debug] MISSING grads for:", missing[:10], ("..." if len(missing) > 10 else "")) # print first 10 missing grads
+            print("[DLG/debug] MISSING grads for:", missing[:10], ("..." if len(missing) > 10 else "")) 
         if extra:
-            print("[DLG/debug] EXTRA grads in payload:", extra[:10], ("..." if len(extra) > 10 else "")) # print first 10 extra grads
-        if maybe_label is not None:
-            print(f"[DLG/debug] payload says label={maybe_label}") # print the label
+            print("[DLG/debug] EXTRA grads in payload:", extra[:10], ("..." if len(extra) > 10 else "")) 
+        print(f"[DLG/debug] label_counts={label_counts}, B={leak_batch_size}")
 
-    if maybe_label is None:
+    if not label_counts:
         if "fc2.bias" not in grads_by_name:
-            raise RuntimeError("No label provided and cannot infer (fc2.bias missing).")
-        gb = grads_by_name["fc2.bias"].reshape(-1).float()  # get bias grad
-        fixed_label = int(torch.argmin(gb).item())  # infer label from min
-        if DEBUG:
-            print(f"[DLG/debug] inferred label via fc2.bias argmin -> {fixed_label}")
-    else:
-        fixed_label = int(maybe_label)  # use provided label
+             raise RuntimeError("No label_counts provided and cannot infer.")
+        gb = grads_by_name["fc2.bias"].reshape(-1).float()
+        guessed_label = int(torch.argmin(gb).item())
+        print(f"[DLG/debug] label_counts missing, inferred single label {guessed_label} from fc2.bias")
+        label_counts = {guessed_label: leak_batch_size}
 
     print("[attack/DLG] starting reconstruction…")
-    deep_leakage_from_gradients(model, grads_by_name, fixed_label, iters=20000, log_every=1000, save_every=2000, device=device)
+    deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_size, msg=msg, iters=20000, log_every=1000, save_every=2000, device=device)
     print("[attack/DLG] done.")
 
 if __name__ == "__main__":
