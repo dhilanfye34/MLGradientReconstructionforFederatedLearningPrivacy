@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import sys, os, time, pickle, random
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import argparse, socket, torch, torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
@@ -49,10 +48,10 @@ def main():
     loader = DataLoader(shard_ds, batch_size=64, shuffle=True)
 
     # Leak config: separate loader for the leak with adjustable batch size
-    LEAK_ONCE      = os.environ.get("LEAK_ONCE", "1") == "1"     # one-shot leak gate
-    LEAK_RANDOM_P  = float(os.environ.get("LEAK_RANDOM_P", "0.2"))  # chance to leak in a round
+    LEAK_ONCE = os.environ.get("LEAK_ONCE", "1") == "1"     # one-shot leak gate
+    LEAK_RANDOM_P = float(os.environ.get("LEAK_RANDOM_P", "0.2"))  # chance to leak in a round
     LEAK_BATCH_SIZE= int(os.environ.get("LEAK_BATCH_SIZE", "5"))    # leak batch size (e.g., 5 or 10)
-    leak_loader    = DataLoader(shard_ds, batch_size=LEAK_BATCH_SIZE, shuffle=True)
+    leak_loader = DataLoader(shard_ds, batch_size=LEAK_BATCH_SIZE, shuffle=True)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"[client] starting | host={args.host}:{args.port} | shard={args.shard}/{args.total_shards} "
@@ -76,8 +75,8 @@ def main():
                 print(f"[client] error receiving global weights: {e}. exiting.", flush=True)
                 return
 
-            # --- Random one-shot leak of SUM-of-gradients over a leak batch ---
-            # Only once, and only on a random round with probability LEAK_RANDOM_P
+            # Random one-shot leak of sum of gradients over a leak batch
+            # Only once, and only on a random round with probability leak_random_p
             if LEAK_ONCE and (random.random() < LEAK_RANDOM_P):
                 try:
                     model = SmallCNN(pretrained=False)
@@ -107,9 +106,9 @@ def main():
                         label_counts[int(c.item())] = int((yb == c).sum().item())
 
                     payload = {
-                        "grads_by_name": grads_by_name,   # SUM over the leak batch
-                        "state_dict": state_cpu,          # exact W_k
-                        "label_counts": label_counts,     # batch composition
+                        "grads_by_name": grads_by_name, # sum over the leak batch
+                        "state_dict": state_cpu, # exact W_k
+                        "label_counts": label_counts, # batch composition
                         "leak_batch_size": LEAK_BATCH_SIZE,
                         "round_idx": round_idx,
                     }

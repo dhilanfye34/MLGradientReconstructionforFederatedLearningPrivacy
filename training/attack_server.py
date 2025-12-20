@@ -1,7 +1,5 @@
-#!/usr/bin/env python3
 import os, sys, socket, pickle, torch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import torch.nn.functional as F
 from torch.autograd import grad
 from pathlib import Path
@@ -45,13 +43,12 @@ def cosine_layer_loss_weighted(dummy_grads, tgt_grads, eps=1e-12):
     L = torch.stack(losses)
     return (L * (w / w.sum())).sum()  # weighted average
 
-def deep_leakage_from_gradients(model, grads_by_name, fixed_label, *,
-                                iters=20000, log_every=1000, save_every=2000, device="cpu"):
+def deep_leakage_from_gradients(model, grads_by_name, fixed_label, *, iters=20000, log_every=1000, save_every=2000, device="cpu"):
     model.train()  # enable training mode
     for p in model.parameters():
         p.requires_grad_(True)  # need gradients for reconstruction
 
-    # Build params & targets in exact name order
+    # Build params and targets in exact name order
     params, tgt = [], []
     for n, p in model.named_parameters():
         if n not in grads_by_name:
@@ -93,8 +90,8 @@ def deep_leakage_from_gradients(model, grads_by_name, fixed_label, *,
         opt.zero_grad()  # clear gradients
 
         pred = model(dummy_img)  # forward pass
-        ce = F.cross_entropy(pred, target_y)   # *** fixed hard label ***
-        dummy_grads = grad(ce, params, create_graph=True)  # get gradients
+        ce = F.cross_entropy(pred, target_y) # fixed hard label
+        dummy_grads = grad(ce, params, create_graph=True) # get gradients
 
         match = cosine_layer_loss_weighted(dummy_grads, tgt)  # weighted cosine
         tv = total_variation(dummy_img)  # smoothness term
@@ -143,29 +140,28 @@ def main():
         conn.close()
 
     grads_by_name = msg["grads_by_name"]  # extract gradients
-    state_dict    = msg["state_dict"]  # extract model weights
-    maybe_label   = msg.get("label", None)  # maybe label is included
+    state_dict = msg["state_dict"]  # extract model weights
+    maybe_label = msg.get("label", None)  # maybe label is included
 
     # Build model
     device = "cpu"
     model = SmallCNN(pretrained=False)  # create model
-    state_dict = {k: (v if isinstance(v, torch.Tensor) else torch.tensor(v))
-                  for k, v in state_dict.items()}  # ensure tensors
+    state_dict = {k: (v if isinstance(v, torch.Tensor) else torch.tensor(v)) for k, v in state_dict.items()}  # ensure tensors
     model.load_state_dict(state_dict)  # load weights
     model.to(device)  # move to device
 
     # Name-set check
     model_names = [n for n, _ in model.named_parameters()]
     missing = [n for n in model_names if n not in grads_by_name]
-    extra   = [n for n in grads_by_name.keys() if n not in set(model_names)]
+    extra = [n for n in grads_by_name.keys() if n not in set(model_names)]
     if DEBUG:
-        print(f"[DLG/debug] model has {len(model_names)} params; payload has {len(grads_by_name)} grads")
+        print(f"[DLG/debug] model has {len(model_names)} params; payload has {len(grads_by_name)} grads") # print the number of params and grads
         if missing:
-            print("[DLG/debug] MISSING grads for:", missing[:10], ("..." if len(missing) > 10 else ""))
+            print("[DLG/debug] MISSING grads for:", missing[:10], ("..." if len(missing) > 10 else "")) # print first 10 missing grads
         if extra:
-            print("[DLG/debug] EXTRA grads in payload:", extra[:10], ("..." if len(extra) > 10 else ""))
+            print("[DLG/debug] EXTRA grads in payload:", extra[:10], ("..." if len(extra) > 10 else "")) # print first 10 extra grads
         if maybe_label is not None:
-            print(f"[DLG/debug] payload says label={maybe_label}")
+            print(f"[DLG/debug] payload says label={maybe_label}") # print the label
 
     # Fix the label: prefer payload; else infer from fc2.bias argmin
     if maybe_label is None:
@@ -174,14 +170,14 @@ def main():
         gb = grads_by_name["fc2.bias"].reshape(-1).float()  # get bias grad
         fixed_label = int(torch.argmin(gb).item())  # infer label from min
         if DEBUG:
-            print(f"[DLG/debug] inferred label via fc2.bias argmin -> {fixed_label}")
+            print(f"[DLG/debug] inferred label via fc2.bias argmin -> {fixed_label}") # print the inferred label
     else:
         fixed_label = int(maybe_label)  # use provided label
 
     print("[attack/DLG] starting reconstruction…")
     deep_leakage_from_gradients(
         model, grads_by_name, fixed_label,
-        iters=20000, log_every=1000, save_every=2000, device=device  # run it
+        iters=20000, log_every=1000, save_every=2000, device=device # run the reconstruction
     )
     print("[attack/DLG] done.")
 
