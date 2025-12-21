@@ -67,7 +67,7 @@ def main():
     GLOBAL_STATE = SmallCNN(pretrained=True).state_dict() 
     print(f"[server] initial global model ready ({_count_params(GLOBAL_STATE):,} params)\n", flush=True)
 
-    barrier = threading.Barrier(args.devices + 1)  
+    barrier = threading.Barrier(args.devices + 1) 
     updates = [None] * args.devices
 
     for idx, (sock, addr) in enumerate(zip(socks, addrs)): # threads for each client

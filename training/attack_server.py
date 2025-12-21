@@ -1,5 +1,5 @@
 import os, sys, socket, pickle, torch
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) # allow importing from parent directory
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch.nn.functional as F
 from torch.autograd import grad
 from pathlib import Path
@@ -35,7 +35,7 @@ def cosine_layer_loss_weighted(dummy_grads, tgt_grads, eps=1e-12):
     for dg, tg in zip(dummy_grads, tgt_grads):
         dg_f = dg.reshape(-1)  
         tg_f = tg.reshape(-1)  
-        cos = (dg_f * tg_f).sum() / (dg_f.norm() * tg_f.norm() + eps)  # calculate similarity between our fake gradients and the real ones
+        cos = (dg_f * tg_f).sum() / (dg_f.norm() * tg_f.norm() + eps)  # calc cos similarity between our fake gradients and the real ones
         losses.append(1.0 - cos)  
         weights.append(tg_f.norm().detach() + eps)  
     
@@ -69,20 +69,19 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
             print("[DLG/debug] SHAPE MISMATCHES:", bad_shapes)
             raise RuntimeError("Gradient/param shape mismatch—stop")
         if "fc2.bias" in grads_by_name:
-            gb = grads_by_name["fc2.bias"].reshape(-1).float()
+            gb = grads_by_name["fc2.bias"].reshape(-1).float() 
             print(f"[DLG/debug] fc2.bias grad stats: min={gb.min().item():.6f} "
                   f"max={gb.max().item():.6f} argmin(label?)={int(torch.argmin(gb))}")
         total_norm = torch.sqrt(sum(g.pow(2).sum() for g in tgt)).item()
         print(f"[DLG/debug] total target-grad L2 norm: {total_norm:.6f}")
 
-    # Reconstruct labels for the batch
     if "true_labels" in msg:
         labels_list = msg["true_labels"]
         print(f"[DLG] Using true label list from payload: {labels_list}")
     else:
         labels_list = []
         for label, count in label_counts.items():
-            labels_list.extend([int(label)] * count)
+            labels_list.extend([int(label)] * count) 
     
     while len(labels_list) < leak_batch_size:
         labels_list.append(labels_list[-1] if labels_list else 0)
@@ -93,8 +92,8 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
 
     dummy_img = torch.randn(leak_batch_size, 1, 28, 28, device=device, requires_grad=True)  
     
-    opt = torch.optim.Adam([dummy_img], lr=0.05)  # optimizer to change the dummy image
-    lambda_tv = 2e-4   # small TV keeps edges but avoids smearing
+    opt = torch.optim.Adam([dummy_img], lr=0.05) # optimizer to change the dummy image
+    lambda_tv = 2e-4 # small tv keeps edges but avoids smearing
     lambda_l2 = 1e-6
 
     best_match = float("inf") 
@@ -105,7 +104,6 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
 
         pred = model(dummy_img)  # pass our fake image through the model
         
-        # KEY CHANGE: reduction='sum' to match client's batch gradient summation
         ce = F.cross_entropy(pred, target_y, reduction='sum') 
         dummy_grads = grad(ce, params, create_graph=True) # calculate gradients for our fake image
         match = cosine_layer_loss_weighted(dummy_grads, tgt) # compare our fake gradients to the real ones
@@ -123,8 +121,8 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
                 print(f"it={it:05d} | match(cos)={match.item():.6f} | tv={tv.item():.6f} "
                       f"| loss={loss.item():.6f}")  
 
-        if match.item() < best_match:
-            best_match = match.item()
+        if match.item() < best_match: 
+            best_match = match.item() # update the best match
             
             with torch.no_grad():
                 vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu() 
@@ -169,6 +167,7 @@ def main():
     model_names = [n for n, _ in model.named_parameters()]
     missing = [n for n in model_names if n not in grads_by_name]
     extra = [n for n in grads_by_name.keys() if n not in set(model_names)]
+    
     if DEBUG:
         print(f"[DLG/debug] model has {len(model_names)} params; payload has {len(grads_by_name)} grads") 
         if missing:
