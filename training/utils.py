@@ -13,8 +13,14 @@ def send_pkl(sock, obj: object):
     sock.sendall(data)
 
 def recv_pkl(sock):
-    size = int.from_bytes(sock.recv(8),'big')
+    size_bytes = sock.recv(8)
+    if not size_bytes:
+        raise EOFError("socket closed before size header")
+    size = int.from_bytes(size_bytes, 'big')
     buf, CHUNK = b'', 4096
     while len(buf) < size:
-        buf += sock.recv(min(CHUNK, size-len(buf)))
+        chunk = sock.recv(min(CHUNK, size-len(buf)))
+        if not chunk:
+            raise EOFError("socket closed mid-payload")
+        buf += chunk
     return pickle.loads(buf)

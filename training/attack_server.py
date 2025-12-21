@@ -1,9 +1,10 @@
-import os, sys, socket, pickle, torch
+import os, sys, socket, torch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch.nn.functional as F
 from torch.autograd import grad
 from pathlib import Path
 from cnn_model import SmallCNN
+from training.utils import recv_pkl
 from torchvision.utils import save_image
 
 HOST, PORT = "0.0.0.0", 12346
@@ -11,19 +12,6 @@ OUTDIR = Path(__file__).parent / "results"
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
 DEBUG = True  # extra debugging
-
-def recv_pkl(conn):
-    size_bytes = conn.recv(8) 
-    if not size_bytes:
-        raise EOFError("socket closed before size header")
-    size = int.from_bytes(size_bytes, "big")
-    buf = b""
-    while len(buf) < size:
-        chunk = conn.recv(min(4096, size - len(buf))) # read data in chunks until we get it all
-        if not chunk:
-            raise EOFError("socket closed mid-payload")
-        buf += chunk
-    return pickle.loads(buf) 
 
 def total_variation(x):
     tv_h = (x[:, :, 1:, :] - x[:, :, :-1, :]).abs().mean()
