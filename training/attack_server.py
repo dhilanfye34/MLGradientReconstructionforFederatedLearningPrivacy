@@ -63,7 +63,7 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
         total_norm = torch.sqrt(sum(g.pow(2).sum() for g in tgt)).item()
         print(f"[DLG/debug] total target-grad L2 norm: {total_norm:.6f}")
     # use true labels if available, otherwise reconstruct from label counts
-    if "true_labels" in msg: 
+    if msg is not None and "true_labels" in msg:
         labels_list = msg["true_labels"]
         print(f"[DLG] Using true label list from payload: {labels_list}")
     else:
