@@ -25,12 +25,11 @@ class SmallCNN(nn.Module):
 
     def load_pretrained_weights(self):
         """Loads pretrained MNIST weights if available."""
-        # This will look for mnist_pretrained.pth in the same folder as this script
+        # will look for mnist_pretrained.pth in the same folder as this file
         weights_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mnist_pretrained.pth")
         print("Loading weights from:", weights_path)
         try:
             if os.path.exists(weights_path):
-                # Directly load the checkpoint using torch.load
                 checkpoint = torch.load(weights_path, map_location=torch.device("cpu"), weights_only=False)
                 self.load_state_dict(checkpoint)
                 print("Successfully loaded pretrained weights")
