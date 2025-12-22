@@ -34,7 +34,7 @@ def cosine_layer_loss_weighted(dummy_grads, tgt_grads, eps=1e-12):
 def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_size, *, msg=None, iters=20000, log_every=1000, save_every=2000, device="cpu"):
     model.train()  
     for p in model.parameters():
-        p.requires_grad_(True)  # make sure we can calculate gradients for the model parameters
+        p.requires_grad_(True)  # make sure we can calc gradients for the model parameters
 
     params, tgt = [], []
     
@@ -62,20 +62,20 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
                   f"max={gb.max().item():.6f} argmin(label?)={int(torch.argmin(gb))}")
         total_norm = torch.sqrt(sum(g.pow(2).sum() for g in tgt)).item()
         print(f"[DLG/debug] total target-grad L2 norm: {total_norm:.6f}")
-
-    if "true_labels" in msg:
+    # use true labels if available, otherwise reconstruct from label counts
+    if "true_labels" in msg: 
         labels_list = msg["true_labels"]
         print(f"[DLG] Using true label list from payload: {labels_list}")
     else:
         labels_list = []
         for label, count in label_counts.items():
             labels_list.extend([int(label)] * count) 
-    
+
     while len(labels_list) < leak_batch_size:
-        labels_list.append(labels_list[-1] if labels_list else 0)
+        labels_list.append(labels_list[-1] if labels_list else 0) 
     labels_list = labels_list[:leak_batch_size]
 
-    target_y = torch.tensor(labels_list, device=device).long()
+    target_y = torch.tensor(labels_list, device=device).long() # target labels for the batch
     print(f"[DLG] Reconstructing batch of size {leak_batch_size} with labels: {labels_list}")
 
     dummy_img = torch.randn(leak_batch_size, 1, 28, 28, device=device, requires_grad=True)  
@@ -114,7 +114,7 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
             
             with torch.no_grad():
                 vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu() 
-                save_image(vis, best_png, nrow=int(leak_batch_size**0.5)+1) # save grid
+                save_image(vis, best_png, nrow=int(leak_batch_size**0.5)+1) 
 
         if it % save_every == 0: # save every 2000 iterations
             with torch.no_grad():
