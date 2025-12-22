@@ -25,16 +25,19 @@ class SmallCNN(nn.Module):
 
     def load_pretrained_weights(self):
         """Loads pretrained MNIST weights if available."""
-        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "MLGradientReconstructionforFederatedLearningPrivacy"))
-        weights_path = os.path.join(BASE_DIR, "mnist_pretrained.pth")
+        # This will look for mnist_pretrained.pth in the same folder as this script
+        weights_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mnist_pretrained.pth")
         print("Loading weights from:", weights_path)
         try:
-            # Directly load the checkpoint using torch.load
-            checkpoint = torch.load(weights_path, map_location=torch.device("cpu"), weights_only=False)
-            self.load_state_dict(checkpoint, strict=False)
-            print("✅ Successfully loaded pretrained weights!")
+            if os.path.exists(weights_path):
+                # Directly load the checkpoint using torch.load
+                checkpoint = torch.load(weights_path, map_location=torch.device("cpu"), weights_only=False)
+                self.load_state_dict(checkpoint)
+                print("Successfully loaded pretrained weights")
+            else:
+                print(f"Pretrained weights not found at {weights_path}")
         except Exception as e:
-            print(f"❌ Failed to load pretrained weights: {e}")
+            print(f"Failed to load pretrained weights: {e}")
 
 def load_from_state_dict(state):
     m = SmallCNN(pretrained=False)
