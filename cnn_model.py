@@ -16,15 +16,15 @@ class SmallCNN(nn.Module):
             self.load_pretrained_weights()
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))  # 14x14
-        x = self.pool(F.relu(self.conv2(x)))  # 7x7
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
         x = x.view(-1, 64 * 7 * 7)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
 
     def load_pretrained_weights(self):
-        # Loads pretrained MNIST weights if available
+        # Loads pretrained mnist weights if available
         weights_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mnist_pretrained.pth")
         print("Loading weights from:", weights_path)
         try:
