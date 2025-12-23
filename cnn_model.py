@@ -24,7 +24,7 @@ class SmallCNN(nn.Module):
         return x
 
     def load_pretrained_weights(self):
-        """Loads pretrained MNIST weights if available."""
+        # Loads pretrained MNIST weights if available
         weights_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mnist_pretrained.pth")
         print("Loading weights from:", weights_path)
         try:
