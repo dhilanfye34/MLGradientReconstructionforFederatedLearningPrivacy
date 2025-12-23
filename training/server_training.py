@@ -84,7 +84,7 @@ def main():
         barrier.wait()  
         print("[server] waiting for client updates...", flush=True)
         barrier.wait()  
-        print("[server] aggregating (FedAvg)...", flush=True)
+        print("[server] aggregating for FedAvg...", flush=True)
 
         GLOBAL_STATE = average_state_dicts(updates) # combine all client updates into one global model
         torch.save(GLOBAL_STATE, os.path.join(CKPT_DIR, f"round_{r}.pth")) 
@@ -93,7 +93,7 @@ def main():
         acc = eval_acc(GLOBAL_STATE, val_loader, device=device) 
         dt = time.time() - t0 # time
         
-        print(f"[server] round {r:02d} complete | ΔW L2 = {dW:.2f} | val acc = {acc:.2%} | time = {dt:.1f}s\n", flush=True)
+        print(f"[server] round {r:02d} complete | change in W L2 = {dW:.2f} | val acc = {acc:.2%} | time = {dt:.1f}s\n", flush=True)
     print(f"[server] training done. checkpoints saved in {CKPT_DIR}", flush=True)
 
 if __name__ == '__main__':

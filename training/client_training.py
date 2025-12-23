@@ -87,14 +87,14 @@ def main():
                     grads  = torch.autograd.grad(loss, params, create_graph=False)
 
                     names = [n for n, _ in model.named_parameters()]
-                    grads_by_name = {names[i]: grads[i].detach().cpu().float() for i in range(len(names))} # map gradients to param names and move to cpu
+                    grads_by_name = {names[i]: grads[i].detach().cpu().float() for i in range(len(names))} # map gradients to param names
 
-                    state_cpu = {k: v.detach().cpu() for k, v in state_dict.items()} # move weights to cpu for sending
+                    state_cpu = {k: v.detach().cpu() for k, v in state_dict.items()} # weights for sending
                     
-                    true_labels = yb.cpu().tolist() # send exact label order for easier matching
+                    true_labels = yb.cpu().tolist() # exact label order for easier matching
                     label_counts = {}
                     for c in yb.unique():
-                        label_counts[int(c.item())] = int((yb == c).sum().item()) # count how many of each digit we have
+                        label_counts[int(c.item())] = int((yb == c).sum().item()) # count how many of each digit
 
                     payload = {
                         "grads_by_name": grads_by_name, 

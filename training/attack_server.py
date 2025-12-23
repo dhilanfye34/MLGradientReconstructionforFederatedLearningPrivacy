@@ -11,7 +11,7 @@ HOST, PORT = "0.0.0.0", 12346
 OUTDIR = Path(__file__).parent / "results"
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
-DEBUG = True  # extra debugging
+DEBUG = True # extra debugging
 
 def total_variation(x):
     tv_h = (x[:, :, 1:, :] - x[:, :, :-1, :]).abs().mean()
@@ -90,24 +90,23 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
     for it in range(1, iters + 1):
         opt.zero_grad()  
 
-        pred = model(dummy_img)  # pass our fake image through the model
+        pred = model(dummy_img)  # pass fake image through the model
         
         ce = F.cross_entropy(pred, target_y, reduction='sum') 
-        dummy_grads = grad(ce, params, create_graph=True) # calculate gradients for our fake image
-        match = cosine_layer_loss_weighted(dummy_grads, tgt) # compare our fake gradients to the real ones
+        dummy_grads = grad(ce, params, create_graph=True) # calc gradients for fake image
+        match = cosine_layer_loss_weighted(dummy_grads, tgt) # compare fake gradients to real ones
         tv = total_variation(dummy_img) 
         l2 = (dummy_img ** 2).mean()  
         loss = match + lambda_tv * tv + lambda_l2 * l2  # combine all losses
-        loss.backward()  # calculate how to change the dummy image to minimize loss
+        loss.backward()  # calc how to change the dummy image to minimize loss
         opt.step()  # update the dummy image
 
         with torch.no_grad():
             dummy_img.clamp_(-1.0, 1.0) # keep pixel values in valid range
 
-        if it % log_every == 0: # log every 1000 iterations
+        if it % log_every == 0:
             with torch.no_grad():
-                print(f"it={it:05d} | match(cos)={match.item():.6f} | tv={tv.item():.6f} "
-                      f"| loss={loss.item():.6f}")  
+                print(f"it={it:05d} | match(cos)={match.item():.6f} | tv={tv.item():.6f} | loss={loss.item():.6f}")  
 
         if match.item() < best_match: 
             best_match = match.item() # update the best match
@@ -116,7 +115,7 @@ def deep_leakage_from_gradients(model, grads_by_name, label_counts, leak_batch_s
                 vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu() 
                 save_image(vis, best_png, nrow=int(leak_batch_size**0.5)+1) 
 
-        if it % save_every == 0: # save every 2000 iterations
+        if it % save_every == 0:
             with torch.no_grad():
                 vis = (dummy_img * 0.5 + 0.5).clamp(0, 1).cpu()     
                 out_png = OUTDIR / f"dlg_iter_{it}.png"
@@ -166,7 +165,7 @@ def main():
 
     if not label_counts:
         if "fc2.bias" not in grads_by_name:
-             raise RuntimeError("No label_counts provided and cannot infer.")
+             raise RuntimeError("No label_counts provided and cannot infer single label")
         gb = grads_by_name["fc2.bias"].reshape(-1).float()
         guessed_label = int(torch.argmin(gb).item())
         print(f"[DLG/debug] label_counts missing, inferred single label {guessed_label} from fc2.bias")
