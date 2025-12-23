@@ -1,7 +1,7 @@
 import torch, pickle
 
 def average_state_dicts(states: list[dict[str, torch.Tensor]]):
-    """Element-wise mean of a list of state_dicts."""
+    # Element-wise mean of a list of state_dicts
     avg = {}
     for k in states[0]:
         avg[k] = torch.stack([sd[k] for sd in states]).mean(0)

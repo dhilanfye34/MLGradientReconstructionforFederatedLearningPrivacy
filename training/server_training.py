@@ -50,7 +50,7 @@ def main():
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('', args.port)) 
     server.listen(args.devices)
-    print(f"[server] listening on 0.0.0.0:{args.port} — waiting for {args.devices} device(s)...", flush=True)
+    print(f"[server] listening on 0.0.0.0:{args.port} - waiting for {args.devices} device(s)...", flush=True)
 
     socks, addrs = [], []
     for i in range(args.devices):
